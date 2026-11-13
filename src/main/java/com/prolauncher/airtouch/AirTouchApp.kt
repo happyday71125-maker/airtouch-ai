@@ -64,9 +64,8 @@ import com.google.mediapipe.framework.image.MPImage
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.core.Delegate
-import.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
-import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import com.google.mediapipe.tasks.vision.core.RunningMode
+
 import java.io.File
 import java.io.FileInputStream
 import java.nio.channels.FileChannel
@@ -740,7 +739,7 @@ class AirTouchTrackingService : LifecycleService() {
         try {
             val width = imageProxy.width
             val height = imageProxy.height
-            val rotationDegrees = imageInfo.rotationDegrees
+val rotationDegrees = imageProxy.imageInfo.rotationDegrees
             var bmp = reusableBitmap
             if (bmp == null || bmp.width != width || bmp.height != height) {
                 bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
