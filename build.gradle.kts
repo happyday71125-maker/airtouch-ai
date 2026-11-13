@@ -1,3 +1,4 @@
+import java.net.URI
 plugins {
     id("com.android.application") version "8.5.2"
     id("org.jetbrains.kotlin.android") version "1.9.24"
@@ -41,7 +42,7 @@ tasks.matching { it.name == "preBuild" }.configureEach {
         assetDir.mkdirs()
         val modelFile = file("src/main/assets/hand_landmarker.task")
         if (!modelFile.exists() || modelFile.length() < 100000L) {
-            val url = java.net.URI("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task").toURL()
+            val url = URI("https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task").toURL()
             url.openStream().use { input ->
                 modelFile.outputStream().use { output ->
                     input.copyTo(output)
