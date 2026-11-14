@@ -7,6 +7,7 @@ import android.app.*
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.*
 import android.media.AudioManager
 import android.os.*
@@ -72,6 +73,8 @@ class LowRamConfig(context: Context) {
     var useGpuDelegate: Boolean get() = prefs.getBoolean("use_gpu_v22", true); set(v) = prefs.edit().putBoolean("use_gpu_v22", v).apply()
     var cursorSpeed: Float get() = prefs.getFloat("cursor_speed_v22", 1.85f); set(v) = prefs.edit().putFloat("cursor_speed_v22", v.coerceIn(0.6f, 3.2f)).apply()
     var mouseAcceleration: Boolean get() = prefs.getBoolean("mouse_accel_v22", true); set(v) = prefs.edit().putBoolean("mouse_accel_v22", v).apply()
+    var distanceAutoScale: Boolean get() = prefs.getBoolean("dist_auto_scale_v23", true); set(v) = prefs.edit().putBoolean("dist_auto_scale_v23", v).apply()
+    var sniperMicroAim: Boolean get() = prefs.getBoolean("sniper_micro_aim_v23", true); set(v) = prefs.edit().putBoolean("sniper_micro_aim_v23", v).apply()
     var pinchRatioThreshold: Float get() = prefs.getFloat("pinch_ratio_threshold", 0.33f); set(v) = prefs.edit().putFloat("pinch_ratio_threshold", v.coerceIn(0.18f, 0.50f)).apply()
     var dwellClickEnabled: Boolean get() = prefs.getBoolean("dwell_click_enabled", false); set(v) = prefs.edit().putBoolean("dwell_click_enabled", v).apply()
     var dwellDurationMs: Long get() = prefs.getLong("dwell_duration_ms", 1000L); set(v) = prefs.edit().putLong("dwell_duration_ms", v.coerceIn(500L, 2000L)).apply()
@@ -86,6 +89,9 @@ object AirTouchTelemetry {
     @Volatile var fingerStatesText: String = "손 대기 중..."
     @Volatile var currentModeText: String = "카메라 앞에 손을 보여주세요"
     @Volatile var pinchRatio: Float = 1.0f
+    @Volatile var estimatedDistanceCm: Int = 35
+    @Volatile var distanceGainFactor: Float = 1.0f
+    @Volatile var orientationText: String = "세로 모드"
     @Volatile var lastTriggeredActionText: String = "없음"
     @Volatile var inferenceLatencyMs: Long = 0L
 }
@@ -98,7 +104,15 @@ class OneEuroPointerFilter {
     private var dyPrev = 0f
     private var lastTimeMs = 0L
 
-    fun filter(rawX: Float, rawY: Float, nowMs: Long, baseSensitivity: Float, useAccel: Boolean): Pair<Float, Float> {
+    fun filter(
+        rawX: Float,
+        rawY: Float,
+        nowMs: Long,
+        baseSensitivity: Float,
+        distGain: Float,
+        sniperDamp: Float,
+        useAccel: Boolean
+    ): Pair<Float, Float> {
         if (!initialized || lastTimeMs == 0L || (nowMs - lastTimeMs) > 500L) {
             initialized = true; xPrev = rawX; yPrev = rawY; dxPrev = 0f; dyPrev = 0f; lastTimeMs = nowMs
             return Pair(rawX, rawY)
@@ -113,16 +127,18 @@ class OneEuroPointerFilter {
         dyPrev += dAlpha * (vy - dyPrev)
         val speed = hypot(dxPrev, dyPrev)
 
-        val minCutoff = 1.15f
-        val beta = 28.0f
+        val minCutoff = (0.95f * distGain.coerceIn(0.65f, 1.45f)) * sniperDamp
+        val beta = 28.0f * sniperDamp
         val cutoff = minCutoff + beta * speed
-        val posAlpha = alpha(dt, cutoff).coerceIn(0.16f, 0.96f)
+        val posAlpha = alpha(dt, cutoff).coerceIn(0.12f, 0.96f)
 
-        val accelGain = if (useAccel) (1.0f + (speed * 0.42f).coerceAtMost(1.35f)) else 1.0f
-        val stepX = (rawX - xPrev) * posAlpha * accelGain * (baseSensitivity / 1.65f).coerceAtLeast(0.5f)
-        val stepY = (rawY - yPrev) * posAlpha * accelGain * (baseSensitivity / 1.65f).coerceAtLeast(0.5f)
+        val accelGain = if (useAccel) (1.0f + (speed * 0.44f).coerceAtMost(1.40f)) else 1.0f
+        val totalGain = posAlpha * accelGain * (baseSensitivity / 1.65f).coerceAtLeast(0.45f) * sniperDamp
+        val stepX = (rawX - xPrev) * totalGain
+        val stepY = (rawY - yPrev) * totalGain
 
-        if (hypot(rawX - xPrev, rawY - yPrev) > 0.0012f) {
+        val deadzone = (0.0011f / distGain.coerceIn(0.6f, 1.6f))
+        if (hypot(rawX - xPrev, rawY - yPrev) > deadzone) {
             xPrev = (xPrev + stepX).coerceIn(0f, 1f)
             yPrev = (yPrev + stepY).coerceIn(0f, 1f)
         }
@@ -130,7 +146,7 @@ class OneEuroPointerFilter {
     }
 
     private fun alpha(dt: Float, cutoffHz: Float): Float {
-        val tau = 1.0f / (2.0f * PI.toFloat() * cutoffHz)
+        val tau = 1.0f / (2.0f * PI.toFloat() * cutoffHz.coerceAtLeast(0.1f))
         return 1.0f / (1.0f + tau / dt)
     }
 }
@@ -150,23 +166,43 @@ class GestureClassifier(private val config: LowRamConfig) {
     private var dwellStartTimeMs = 0L; private var dwellTriggeredAtCurrentSpot = false
     private var currentCandidatePose: HandPose? = null; private var poseStartTimeMs = 0L; private var poseTriggeredInCurrentHold = false
     private var lastPalmX = -1f; private var lastPalmY = -1f; private var lastPalmTimeMs = 0L; private var lastSwipeTriggerTimeMs = 0L
+    private var smoothedHandScale = 0.18f
     var isTrackingPaused: Boolean = false; private set
 
     fun evaluate(lm: List<NormalizedLandmark>): FrameEvaluation {
         val now = SystemClock.uptimeMillis()
-        val wrist = lm[0]; val thumbTip = lm[4]; val indexMcp = lm[5]; val indexPip = lm[6]; val indexTip = lm[8]; val middleMcp = lm[9]
-        val handScale = dist(wrist, middleMcp).coerceAtLeast(0.07f)
-        val effectivePinchRatio = minOf(dist(thumbTip, indexTip) / handScale, (dist(thumbTip, indexPip) / handScale) * 1.05f)
+        val wrist = lm[0]; val thumbTip = lm[4]; val indexMcp = lm[5]; val indexPip = lm[6]; val indexTip = lm[8]; val middleMcp = lm[9]; val pinkyMcp = lm[17]
+
+        val palmLen3D = dist3D(wrist, middleMcp)
+        val palmWidth3D = dist3D(indexMcp, pinkyMcp)
+        val rawHandScale = maxOf(palmLen3D, palmWidth3D * 1.15f).coerceIn(0.06f, 0.55f)
+        smoothedHandScale += (rawHandScale - smoothedHandScale) * 0.25f
+        val handScale = smoothedHandScale
+
+        val estCm = (6.3f / handScale).roundToInt().coerceIn(15, 95)
+        AirTouchTelemetry.estimatedDistanceCm = estCm
+
+        val distGain = if (config.distanceAutoScale) {
+            (0.18f / handScale).coerceIn(0.60f, 1.85f)
+        } else 1.0f
+        AirTouchTelemetry.distanceGainFactor = distGain
+
+        val effectivePinchRatio = minOf(dist2D(thumbTip, indexTip) / handScale, (dist2D(thumbTip, indexPip) / handScale) * 1.05f)
         AirTouchTelemetry.pinchRatio = effectivePinchRatio
         val ratioThreshold = config.pinchRatioThreshold
-        val isApproachingPinch = effectivePinchRatio < (ratioThreshold * 1.38f)
+        val isApproachingPinch = effectivePinchRatio < (ratioThreshold * 1.32f)
 
-        val ptrRawX = 1.0f - (indexTip.x() * 0.85f + indexMcp.x() * 0.15f)
-        val ptrRawY = (indexTip.y() * 0.85f + indexMcp.y() * 0.15f)
-        val roiX = ((ptrRawX - 0.50f) * config.cursorSpeed + 0.50f).coerceIn(0f, 1f)
-        val roiY = ((ptrRawY - 0.56f) * (config.cursorSpeed * 1.12f) + 0.50f).coerceIn(0f, 1f)
+        val sniperDamp = if (config.sniperMicroAim && effectivePinchRatio < (ratioThreshold * 1.85f)) {
+            ((effectivePinchRatio - ratioThreshold * 1.32f) / (ratioThreshold * 0.53f)).coerceIn(0.28f, 1.0f)
+        } else 1.0f
 
-        val (filteredX, filteredY) = oneEuro.filter(roiX, roiY, now, config.cursorSpeed, config.mouseAcceleration)
+        val ptrRawX = indexTip.x() * 0.85f + indexMcp.x() * 0.15f
+        val ptrRawY = indexTip.y() * 0.85f + indexMcp.y() * 0.15f
+        val effectiveSpeed = config.cursorSpeed * distGain
+        val roiX = ((ptrRawX - 0.50f) * effectiveSpeed + 0.50f).coerceIn(0f, 1f)
+        val roiY = ((ptrRawY - 0.55f) * (effectiveSpeed * 1.10f) + 0.50f).coerceIn(0f, 1f)
+
+        val (filteredX, filteredY) = oneEuro.filter(roiX, roiY, now, config.cursorSpeed, distGain, sniperDamp, config.mouseAcceleration)
 
         if (!isApproachingPinch) {
             isCursorLockedForPinch = false; lockedX = filteredX; lockedY = filteredY
@@ -212,7 +248,7 @@ class GestureClassifier(private val config: LowRamConfig) {
         val isPointingOnly = indexUp && !middleUp && !ringUp && !pinkyUp && !isCurrentlyPinching
         var dwellProgress = 0f; var dwellJustClicked = false
         if (config.dwellClickEnabled && isPointingOnly && !isTrackingPaused) {
-            if (hypot(finalX - dwellAnchorX, finalY - dwellAnchorY) > 0.022f) {
+            if (hypot(finalX - dwellAnchorX, finalY - dwellAnchorY) > 0.020f) {
                 dwellAnchorX = finalX; dwellAnchorY = finalY; dwellStartTimeMs = now; dwellTriggeredAtCurrentSpot = false
             } else {
                 val elapsed = now - dwellStartTimeMs
@@ -257,7 +293,7 @@ class GestureClassifier(private val config: LowRamConfig) {
         } else { currentCandidatePose = null; poseTriggeredInCurrentHold = false }
 
         var triggeredSwipeAction: AirTouchAction? = null
-        val palmX = 1.0f - ((wrist.x() + middleMcp.x()) * 0.5f)
+        val palmX = (wrist.x() + middleMcp.x()) * 0.5f
         val palmY = (wrist.y() + middleMcp.y()) * 0.5f
         if (config.swipeScrollEnabled && !isTrackingPaused && !isCurrentlyPinching) {
             val dt = now - lastPalmTimeMs
@@ -276,17 +312,18 @@ class GestureClassifier(private val config: LowRamConfig) {
 
         val summary = when {
             isTrackingPaused -> "[일시정지] 주먹 0.6초 쥐어 해제"
-            isCurrentlyPinching -> "◎ 클릭 감지 중 (떼면 클릭 / 유지시 롱클릭)"
+            isCurrentlyPinching -> "◎ 클릭 고정됨 (${estCm}cm · 떼면 클릭)"
             rawPose != null -> "${rawPose.labelKo} (${(poseProgress * 100).toInt()}%)"
-            isPointingOnly -> "◎ 블루투스 마우스 포인터 활성 (엄지+검지 맞대면 클릭)"
-            else -> "● 손 인식됨 (검지만 펴면 커서 조준)"
+            sniperDamp < 0.85f && isPointingOnly -> "◎ 정밀 조준 중 (${estCm}cm · 맞대면 클릭)"
+            isPointingOnly -> "◎ 마우스 포인터 (${estCm}cm · 보정 ${String.format("%.2f", distGain)}x)"
+            else -> "● 손 인식됨 (${estCm}cm · 검지만 펴면 조준)"
         }
         AirTouchTelemetry.currentModeText = summary
         return FrameEvaluation(finalX, finalY, vxNorm, vyNorm, isCurrentlyPinching, pinchProgress, pinchJustClicked, pinchLongPressed, dwellJustClicked, dwellProgress, currentCandidatePose, poseProgress, triggeredPoseAction, triggeredSwipeAction, isTrackingPaused, summary)
     }
 
     private fun isFingerExtended(wrist: NormalizedLandmark, mcp: NormalizedLandmark, pip: NormalizedLandmark, tip: NormalizedLandmark): Boolean {
-        if (dist(wrist, tip) <= dist(wrist, pip) * 1.08f || dist(wrist, tip) <= dist(wrist, mcp) * 1.25f) return false
+        if (dist2D(wrist, tip) <= dist2D(wrist, pip) * 1.08f || dist2D(wrist, tip) <= dist2D(wrist, mcp) * 1.25f) return false
         val v1x = pip.x() - mcp.x(); val v1y = pip.y() - mcp.y(); val v2x = tip.x() - pip.x(); val v2y = tip.y() - pip.y()
         val cos = (v1x * v2x + v1y * v2y) / (sqrt(v1x * v1x + v1y * v1y).coerceAtLeast(1e-4f) * sqrt(v2x * v2x + v2y * v2y).coerceAtLeast(1e-4f))
         return cos > 0.45f
@@ -296,10 +333,14 @@ class GestureClassifier(private val config: LowRamConfig) {
         val wrist = lm[0]; val cmc = lm[1]; val mcp = lm[2]; val ip = lm[3]; val tip = lm[4]
         val v1x = ip.x() - cmc.x(); val v1y = ip.y() - cmc.y(); val v2x = tip.x() - mcp.x(); val v2y = tip.y() - mcp.y()
         val cos = (v1x * v2x + v1y * v2y) / (sqrt(v1x * v1x + v1y * v1y).coerceAtLeast(1e-4f) * sqrt(v2x * v2x + v2y * v2y).coerceAtLeast(1e-4f))
-        return (dist(tip, lm[5]) / handScale > 0.52f) && (dist(tip, lm[9]) / handScale > 0.62f) && (dist(wrist, tip) > dist(wrist, mcp) * 1.12f) && cos > 0.50f
+        return (dist2D(tip, lm[5]) / handScale > 0.52f) && (dist2D(tip, lm[9]) / handScale > 0.62f) && (dist2D(wrist, tip) > dist2D(wrist, mcp) * 1.12f) && cos > 0.50f
     }
 
-    private fun dist(a: NormalizedLandmark, b: NormalizedLandmark): Float = hypot(a.x() - b.x(), a.y() - b.y())
+    private fun dist2D(a: NormalizedLandmark, b: NormalizedLandmark): Float = hypot(a.x() - b.x(), a.y() - b.y())
+    private fun dist3D(a: NormalizedLandmark, b: NormalizedLandmark): Float {
+        val dx = a.x() - b.x(); val dy = a.y() - b.y(); val dz = a.z() - b.z()
+        return sqrt(dx * dx + dy * dy + dz * dz)
+    }
 }
 
 class CursorOverlayView(context: Context) : View(context) {
@@ -307,7 +348,7 @@ class CursorOverlayView(context: Context) : View(context) {
     private val centerDotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = Color.WHITE }
     private val progressArcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 8f; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#00B0FF") }
     private val pillBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = Color.parseColor("#CC101418") }
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 28f; typeface = Typeface.DEFAULT_BOLD }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 27f; typeface = Typeface.DEFAULT_BOLD }
     private val arcRect = RectF(); private val pillRect = RectF()
 
     var targetX = 540f; var targetY = 960f
@@ -316,7 +357,7 @@ class CursorOverlayView(context: Context) : View(context) {
 
     fun updateState(x: Float, y: Float, pinching: Boolean, paused: Boolean, progress: Float, label: String) {
         targetX = x; targetY = y; isPinching = pinching; isPaused = paused; gaugeProgress = progress; statusLabel = label
-        if (hypot(targetX - renderX, targetY - renderY) > 180f) {
+        if (hypot(targetX - renderX, targetY - renderY) > 200f) {
             renderX = targetX; renderY = targetY
         }
         postInvalidateOnAnimation()
@@ -326,26 +367,26 @@ class CursorOverlayView(context: Context) : View(context) {
         super.onDraw(canvas)
         val dx = targetX - renderX
         val dy = targetY - renderY
-        if (isPinching || hypot(dx, dy) < 0.8f) {
+        if (isPinching || hypot(dx, dy) < 0.6f) {
             renderX = targetX; renderY = targetY
         } else {
-            renderX += dx * 0.68f
-            renderY += dy * 0.68f
+            renderX += dx * 0.70f
+            renderY += dy * 0.70f
             postInvalidateOnAnimation()
         }
 
         val r = if (isPinching) 20f else 30f
         outerRingPaint.color = when { isPaused -> Color.parseColor("#FF5252"); isPinching -> Color.parseColor("#FFD740"); else -> Color.parseColor("#00E676") }
         canvas.drawCircle(renderX, renderY, r, outerRingPaint)
-        canvas.drawCircle(renderX, renderY, if (isPinching) 11f else 6f, centerDotPaint)
+        canvas.drawCircle(renderX, renderY, if (isPinching) 11f else 5.5f, centerDotPaint)
         if (gaugeProgress > 0.04f) {
             arcRect.set(renderX - r - 11f, renderY - r - 11f, renderX + r + 11f, renderY + r + 11f)
             canvas.drawArc(arcRect, -90f, 360f * gaugeProgress, false, progressArcPaint)
         }
         val tw = labelPaint.measureText(statusLabel); val pw = tw + 48f; val pl = ((width - pw) * 0.5f).coerceAtLeast(16f)
-        pillRect.set(pl, 96f, pl + pw, 158f)
-        canvas.drawRoundRect(pillRect, 31f, 31f, pillBgPaint)
-        canvas.drawText(statusLabel, pl + 24f, 137f, labelPaint)
+        pillRect.set(pl, 84f, pl + pw, 144f)
+        canvas.drawRoundRect(pillRect, 30f, 30f, pillBgPaint)
+        canvas.drawText(statusLabel, pl + 24f, 123f, labelPaint)
     }
 }
 
@@ -363,6 +404,12 @@ class AirTouchAccessibilityService : AccessibilityService() {
     }
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateScreenMetrics()
+    }
+
     override fun onDestroy() { hideCursorOverlay(); if (instance === this) instance = null; super.onDestroy() }
 
     private fun updateScreenMetrics() {
@@ -373,6 +420,8 @@ class AirTouchAccessibilityService : AccessibilityService() {
             val dm = DisplayMetrics(); @Suppress("DEPRECATION") wm.defaultDisplay.getRealMetrics(dm)
             screenWidth = dm.widthPixels; screenHeight = dm.heightPixels
         }
+        val isLandscape = screenWidth > screenHeight
+        AirTouchTelemetry.orientationText = if (isLandscape) "가로 모드 (${screenWidth}x${screenHeight})" else "세로 모드 (${screenWidth}x${screenHeight})"
     }
 
     fun showCursorOverlay() = mainHandler.post {
@@ -402,8 +451,9 @@ class AirTouchAccessibilityService : AccessibilityService() {
 
     fun updateCursorFromEvaluation(eval: GestureClassifier.FrameEvaluation) = mainHandler.post {
         if (cursorView == null) showCursorOverlay()
-        val leadX = (eval.normCursorX + eval.velocityX * 0.018f).coerceIn(0f, 1f)
-        val leadY = (eval.normCursorY + eval.velocityY * 0.018f).coerceIn(0f, 1f)
+        updateScreenMetrics()
+        val leadX = (eval.normCursorX + eval.velocityX * 0.016f).coerceIn(0f, 1f)
+        val leadY = (eval.normCursorY + eval.velocityY * 0.016f).coerceIn(0f, 1f)
         val px = (leadX * screenWidth).coerceIn(0f, screenWidth.toFloat())
         val py = (leadY * screenHeight).coerceIn(0f, screenHeight.toFloat())
         val tapX = (eval.normCursorX * screenWidth).coerceIn(0f, screenWidth.toFloat())
@@ -417,6 +467,7 @@ class AirTouchAccessibilityService : AccessibilityService() {
     }
 
     fun performAction(action: AirTouchAction, x: Float = screenWidth / 2f, y: Float = screenHeight / 2f) {
+        updateScreenMetrics()
         when (action) {
             AirTouchAction.NONE, AirTouchAction.TOGGLE_PAUSE_TRACKING -> Unit
             AirTouchAction.TAP_AT_CURSOR -> dispatchTap(x, y, 45L)
@@ -468,11 +519,12 @@ class AirTouchTrackingService : LifecycleService() {
     }
     private lateinit var config: LowRamConfig; private lateinit var classifier: GestureClassifier
     private var cameraExecutor: ExecutorService? = null; private var cameraProvider: ProcessCameraProvider? = null
+    private var imageAnalysisUseCase: ImageAnalysis? = null
     private var handLandmarker: HandLandmarker? = null
     private var reusableBitmap: Bitmap? = null
-    private var rotatedReusableBitmap: Bitmap? = null
-    private var rotatedCanvas: Canvas? = null
-    private val rotationMatrix = Matrix()
+    private var transformedReusableBitmap: Bitmap? = null
+    private var transformedCanvas: Canvas? = null
+    private val transformMatrix = Matrix()
     @Volatile private var lastFrameProcessTimeMs = 0L; @Volatile private var lastHandDetectedTimeMs = 0L
 
     private val screenStateReceiver = object : BroadcastReceiver() {
@@ -490,6 +542,25 @@ class AirTouchTrackingService : LifecycleService() {
         registerReceiver(screenStateReceiver, IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_USER_PRESENT) })
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        syncTargetRotationWithDisplay()
+    }
+
+    private fun getCurrentDisplayRotation(): Int {
+        return runCatching {
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.rotation
+        }.getOrDefault(Surface.ROTATION_0)
+    }
+
+    private fun syncTargetRotationWithDisplay() {
+        runCatching {
+            imageAnalysisUseCase?.targetRotation = getCurrentDisplayRotation()
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
@@ -505,10 +576,10 @@ class AirTouchTrackingService : LifecycleService() {
         isRunning = false; AirTouchTelemetry.handDetected = false; AirTouchTelemetry.currentModeText = "추적 중지됨 (0MB 유휴 상태)"
         runCatching { unregisterReceiver(screenStateReceiver) }
         AirTouchAccessibilityService.instance?.hideCursorOverlay()
-        runCatching { cameraProvider?.unbindAll(); cameraProvider = null }
+        runCatching { cameraProvider?.unbindAll(); cameraProvider = null; imageAnalysisUseCase = null }
         runCatching { handLandmarker?.close(); handLandmarker = null }
         reusableBitmap?.recycle(); reusableBitmap = null
-        rotatedReusableBitmap?.recycle(); rotatedReusableBitmap = null; rotatedCanvas = null
+        transformedReusableBitmap?.recycle(); transformedReusableBitmap = null; transformedCanvas = null
         cameraExecutor?.shutdownNow(); cameraExecutor = null
         super.onDestroy()
     }
@@ -543,8 +614,14 @@ class AirTouchTrackingService : LifecycleService() {
         runCatching {
             provider.unbindAll()
             val resSelector = ResolutionSelector.Builder().setResolutionStrategy(ResolutionStrategy(Size(config.cameraWidth, config.cameraHeight), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)).build()
-            val analysis = ImageAnalysis.Builder().setResolutionSelector(resSelector).setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888).build()
+            val analysis = ImageAnalysis.Builder()
+                .setResolutionSelector(resSelector)
+                .setTargetRotation(getCurrentDisplayRotation())
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                .build()
             analysis.setAnalyzer(exec, this::processCameraFrame)
+            imageAnalysisUseCase = analysis
             provider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, analysis)
         }
     }
@@ -552,6 +629,7 @@ class AirTouchTrackingService : LifecycleService() {
     private fun processCameraFrame(imageProxy: ImageProxy) {
         val now = SystemClock.uptimeMillis(); val landmarker = handLandmarker
         if (landmarker == null) { imageProxy.close(); return }
+        syncTargetRotationWithDisplay()
         val targetFps = if ((now - lastHandDetectedTimeMs) > 3500L) config.idleFps else config.activeFps
         if ((now - lastFrameProcessTimeMs) < (1000L / targetFps.coerceAtLeast(1))) { imageProxy.close(); return }
         lastFrameProcessTimeMs = now
@@ -561,20 +639,21 @@ class AirTouchTrackingService : LifecycleService() {
             if (bmp == null || bmp.width != w || bmp.height != h) { bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); reusableBitmap = bmp }
             imageProxy.planes[0].buffer.rewind(); bmp.copyPixelsFromBuffer(imageProxy.planes[0].buffer)
 
-            val finalBmp = if (rot == 90 || rot == 270) {
-                var rBmp = rotatedReusableBitmap
-                if (rBmp == null || rBmp.width != h || rBmp.height != w) {
-                    rBmp = Bitmap.createBitmap(h, w, Bitmap.Config.ARGB_8888)
-                    rotatedReusableBitmap = rBmp; rotatedCanvas = Canvas(rBmp)
-                }
-                rotationMatrix.reset()
-                rotationMatrix.postTranslate(-w / 2f, -h / 2f)
-                rotationMatrix.postRotate(rot.toFloat())
-                rotationMatrix.postTranslate(h / 2f, w / 2f)
-                rotatedCanvas?.drawBitmap(bmp, rotationMatrix, null)
-                rBmp
-            } else bmp
-            landmarker.detectAsync(BitmapImageBuilder(finalBmp).build(), now)
+            val outW = if (rot == 90 || rot == 270) h else w
+            val outH = if (rot == 90 || rot == 270) w else h
+            var tBmp = transformedReusableBitmap
+            if (tBmp == null || tBmp.width != outW || tBmp.height != outH) {
+                tBmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                transformedReusableBitmap = tBmp; transformedCanvas = Canvas(tBmp)
+            }
+            transformMatrix.reset()
+            transformMatrix.postTranslate(-w / 2f, -h / 2f)
+            if (rot != 0) transformMatrix.postRotate(rot.toFloat())
+            transformMatrix.postScale(-1f, 1f)
+            transformMatrix.postTranslate(outW / 2f, outH / 2f)
+            transformedCanvas?.drawBitmap(bmp, transformMatrix, null)
+
+            landmarker.detectAsync(BitmapImageBuilder(tBmp).build(), now)
         } catch (_: Exception) {} finally { imageProxy.close() }
     }
 
@@ -597,7 +676,7 @@ class AirTouchTrackingService : LifecycleService() {
         val stopPending = PendingIntent.getService(this, 1, Intent(this, AirTouchTrackingService::class.java).apply { action = ACTION_STOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val openPending = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(android.R.drawable.ic_menu_view)
-            .setContentTitle("AirTouch AI v2.2 (블루투스 마우스 터보 모드)").setContentText("30FPS + 1€ 가변 필터 + 120Hz 보간 활성 · 터치하여 설정")
+            .setContentTitle("AirTouch AI v2.3 (거리 보정 & 가로/세로 자동 동기화)").setContentText("실시간 3D 거리 정밀 보정 + 가로/세로 100% 대응 · 터치하여 설정")
             .setContentIntent(openPending).addAction(android.R.drawable.ic_menu_close_clear_cancel, "즉시 끄기 (RAM 반환)", stopPending).setOngoing(true).build()
     }
 }
@@ -641,17 +720,17 @@ class MainActivity : AppCompatActivity() {
     private fun buildUi(): ScrollView {
         val scroll = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0D0F12")) }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(24), dp(18), dp(40)) }
-        root.addView(TextView(this).apply { text = "AIRTOUCH AI v2.2 :: BT MOUSE TURBO"; textSize = 19f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
-        root.addView(TextView(this).apply { text = "30FPS GPU 가속 + 1€ 무지연 필터 + 120Hz VSYNC 보간 블루투스 마우스 엔진"; textSize = 12f; setTextColor(Color.parseColor("#9E9E9E")); setPadding(0, dp(4), 0, dp(14)) })
+        root.addView(TextView(this).apply { text = "AIRTOUCH AI v2.3 :: 3D DEPTH & ROTATION"; textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
+        root.addView(TextView(this).apply { text = "실시간 손 거리(cm) 정밀 보정 + 마이크로 조준 + 가로/세로 100% 자동 대응"; textSize = 12f; setTextColor(Color.parseColor("#9E9E9E")); setPadding(0, dp(4), 0, dp(14)) })
 
         statusText = TextView(this).apply { textSize = 13f; typeface = Typeface.MONOSPACE; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#181B20")); setPadding(dp(12), dp(12), dp(12), dp(12)) }
         root.addView(statusText)
 
-        root.addView(createHeader("LIVE GESTURE MONITOR (실시간 반응속도 & 손 인식 모니터)"))
-        liveTelemetryText = TextView(this).apply { textSize = 13f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#FFD740")); setBackgroundColor(Color.parseColor("#141920")); setPadding(dp(12), dp(12), dp(12), dp(12)) }
+        root.addView(createHeader("LIVE GESTURE & DISTANCE MONITOR (실시간 거리·방향·반응 모니터)"))
+        liveTelemetryText = TextView(this).apply { textSize = 12.8f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#FFD740")); setBackgroundColor(Color.parseColor("#141920")); setPadding(dp(12), dp(12), dp(12), dp(12)) }
         root.addView(liveTelemetryText)
 
-        practiceBtn = createBtn("★ [클릭 연습 타겟] 커서를 여기에 올리고 엄지+검지를 맞대어 보세요! (성공: 0회)") {
+        practiceBtn = createBtn("★ [정밀 클릭 연습 타겟] 커서를 올리고 엄지+검지를 맞대어 보세요! (성공: 0회)") {
             practiceClickCount++
             practiceBtn.text = "★ [클릭 성공!] 완벽합니다! 누적 클릭 성공: ${practiceClickCount}회"
             practiceBtn.setBackgroundColor(Color.parseColor("#1B5E20"))
@@ -673,7 +752,15 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(toggleBtn)
 
-        root.addView(createHeader("BLUETOOTH MOUSE FEEL TUNING (마우스 반응속도 · 가속 설정)"))
+        root.addView(createHeader("3D DISTANCE & PRECISION TUNING (거리 자동 보정 · 정밀 조준 설정)"))
+        root.addView(Switch(this).apply {
+            text = "실시간 손 거리(cm) 계산 자동 DPI 보정 (가까울 때 떨림 억제·멀 때 감도 증폭)"; setTextColor(Color.WHITE); isChecked = config.distanceAutoScale; setPadding(0, dp(6), 0, dp(6))
+            setOnCheckedChangeListener { _, checked -> config.distanceAutoScale = checked }
+        })
+        root.addView(Switch(this).apply {
+            text = "클릭 직전 정밀 조준 감속 (Sniper Micro-Aim: 핀치 접근 시 커서 미세 감속)"; setTextColor(Color.WHITE); isChecked = config.sniperMicroAim; setPadding(0, dp(6), 0, dp(6))
+            setOnCheckedChangeListener { _, checked -> config.sniperMicroAim = checked }
+        })
         root.addView(Switch(this).apply {
             text = "블루투스 마우스 비선형 가속 (빠른 이동 시 화면 끝까지 즉시 이동)"; setTextColor(Color.WHITE); isChecked = config.mouseAcceleration; setPadding(0, dp(6), 0, dp(6))
             setOnCheckedChangeListener { _, checked -> config.mouseAcceleration = checked }
@@ -687,12 +774,12 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> config.dwellClickEnabled = checked }
         })
 
-        val speedLabel = TextView(this).apply { text = "마우스 포인터 감도(DPI 배율): ${String.format("%.2f", config.cursorSpeed)}x"; setTextColor(Color.LTGRAY); textSize = 12.5f }
+        val speedLabel = TextView(this).apply { text = "기본 마우스 포인터 감도(DPI 배율): ${String.format("%.2f", config.cursorSpeed)}x"; setTextColor(Color.LTGRAY); textSize = 12.5f }
         root.addView(speedLabel)
         root.addView(SeekBar(this).apply {
             max = 260; progress = ((config.cursorSpeed - 0.6f) * 100f).toInt().coerceIn(0, 260)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) { val v = 0.6f + (p / 100f); config.cursorSpeed = v; speedLabel.text = "마우스 포인터 감도(DPI 배율): ${String.format("%.2f", v)}x" }
+                override fun onProgressChanged(s: SeekBar?, p: Int, f: Boolean) { val v = 0.6f + (p / 100f); config.cursorSpeed = v; speedLabel.text = "기본 마우스 포인터 감도(DPI 배율): ${String.format("%.2f", v)}x" }
                 override fun onStartTrackingTouch(s: SeekBar?) {}; override fun onStopTrackingTouch(s: SeekBar?) {}
             })
         })
@@ -712,15 +799,6 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, checked -> config.swipeScrollEnabled = checked }
         })
 
-        root.addView(createHeader("HOW TO CLICK & CONTROL (구체적인 클릭 및 조작 방법)"))
-        root.addView(TextView(this).apply {
-            textSize = 12.8f; setTextColor(Color.parseColor("#E0E0E0")); setBackgroundColor(Color.parseColor("#16191E")); setPadding(dp(14), dp(14), dp(14), dp(14))
-            text = "[1] 커서 조준 (☝ 검지 포인터 모드)\n• 카메라 앞 25~50cm 거리에 손을 들고 '검지 1개'만 펴고 중지·약지·새끼는 접으세요.\n• 천천히 움직이면 1픽셀 단위로 정밀 조준되고, 빠르게 움직이면 마우스 가속으로 화면 끝까지 즉시 이동합니다.\n\n" +
-                "[2] 클릭하는 3가지 방법\n• (방법 A: 기본 핀치 클릭) 검지로 원하는 버튼을 가리킨 상태에서 '엄지 끝과 검지 끝'을 살짝 맞대었다가 떼면 즉시 클릭됩니다!\n" +
-                "• (방법 B: 길게 누르기) 엄지와 검지를 맞댄 채 0.65초 유지하면 원형 게이지가 차면서 롱클릭됩니다.\n" +
-                "• (방법 C: 머물러 자동 클릭) 위 스위치에서 '머물러 자동 클릭'을 켜면, 커서를 버튼 위에 1초간 멈추기만 해도 자동 클릭됩니다."
-        })
-
         root.addView(createHeader("8 HAND POSES (손 모양 0.6초 유지 시 실행 동작 · 터치하여 변경)"))
         for (pose in HandPose.values()) {
             val rowBtn = createBtn("") {}
@@ -737,17 +815,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateLiveTelemetryCard() {
         if (!LauncherAirTouchBridge.isRunning()) { liveTelemetryText.text = "• 상태: 추적 대기 중 (아래 '3. AirTouch 제스처 추적 시작' 버튼을 눌러주세요)"; return }
-        liveTelemetryText.text = "• 손 감지 여부 : ${if (AirTouchTelemetry.handDetected) "● 인식됨 (추론 지연: ${AirTouchTelemetry.inferenceLatencyMs}ms / 30FPS)" else "○ 카메라 시야에 손 없음"}\n" +
+        liveTelemetryText.text = "• 손 감지 여부 : ${if (AirTouchTelemetry.handDetected) "● 인식됨 (지연: ${AirTouchTelemetry.inferenceLatencyMs}ms / 30FPS)" else "○ 카메라 시야에 손 없음"}\n" +
+            "• 카메라~손거리: 약 ${AirTouchTelemetry.estimatedDistanceCm} cm (자동 정밀도 배율: ${String.format("%.2f", AirTouchTelemetry.distanceGainFactor)}x)\n" +
+            "• 화면 방향    : ${AirTouchTelemetry.orientationText} (가로·세로 자동 회전 동기화)\n" +
             "• 손가락 펴짐  : ${AirTouchTelemetry.fingerStatesText}\n• 현재 모드    : ${AirTouchTelemetry.currentModeText}\n" +
-            "• 핀치 거리비율: ${String.format("%.2f", AirTouchTelemetry.pinchRatio)} (임계값 ${String.format("%.2f", config.pinchRatioThreshold)} 이하로 맞닿으면 클릭!)\n" +
-            "• 최근 실행동작: ${AirTouchTelemetry.lastTriggeredActionText}"
+            "• 핀치 거리비율: ${String.format("%.2f", AirTouchTelemetry.pinchRatio)} (임계값 ${String.format("%.2f", config.pinchRatioThreshold)} 이하 시 클릭)"
     }
 
     private fun refreshDashboardState() {
         val running = LauncherAirTouchBridge.isRunning()
         statusText.text = "• 전면 카메라 권한 : ${if (hasCameraPermission()) "허용됨 (OK)" else "미허용 (권한 필요)"}\n" +
             "• 접근성 서비스    : ${if (LauncherAirTouchBridge.isAccessibilityEnabled(this)) "활성화됨 (OK)" else "비활성 (설정 필요)"}\n" +
-            "• AirTouch 엔진    : ${if (running) "실행 중 (30FPS + 120Hz 터보)" else "대기 중 (0MB 유휴 상태)"}"
+            "• AirTouch 엔진    : ${if (running) "실행 중 (v2.3 거리보정 + 가로/세로 동기화)" else "대기 중 (0MB 유휴 상태)"}"
         val pssMb = runCatching { (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getProcessMemoryInfo(intArrayOf(Process.myPid()))[0].totalPss / 1024 }.getOrDefault(0)
         ramUsageText.text = "현재 앱 총 RAM 사용량(PSS): 약 ${pssMb} MB (끔 상태에서는 카메라·모델 0 MB)"
         toggleBtn.text = if (running) "[ AirTouch 제스처 추적 중지 (RAM 즉시 반환) ]" else "[ 3. AirTouch 제스처 추적 시작 ]"
