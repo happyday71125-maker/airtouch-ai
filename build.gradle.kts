@@ -12,8 +12,9 @@ android {
         applicationId = "com.prolauncher.airtouch"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0-lowram"
+      val runNum = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = 100 + runNum
+        versionName = "2.1.$runNum"
     }
 
     compileOptions {
