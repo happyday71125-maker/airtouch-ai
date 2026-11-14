@@ -21,8 +21,8 @@ jobs:
       - name: Restore Permanent Signing Keystore
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: airtouch-ai-permanent-keystore-v1
+          path: permanent-debug.keystore
+          key: airtouch-ai-permanent-keystore-v2
         
       - name: Build Debug APK with Gradle
         uses: gradle/actions/setup-gradle@v3
