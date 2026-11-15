@@ -18,20 +18,31 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           
-      - name: Restore Permanent Signing Keystore
-        uses: actions/cache@v4
-        with:
-          path: permanent-debug.keystore
-          key: airtouch-ai-permanent-keystore-v2
-        
-      - name: Build Debug APK with Gradle
+      - name: Generate Deterministic RSA-2048 Release Keystore
+        run: python3 generate_keystore.py
+
+      - name: Build Signed Release APK with Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
-          arguments: assembleDebug --no-daemon --stacktrace
+          arguments: assembleRelease --no-daemon --stacktrace
 
-      - name: Upload Debug APK
+      - name: Verify APK Certificate Fingerprint and VersionCode
+        run: |
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -n 1)
+          AAPT2=$(ls $ANDROID_HOME/build-tools/*/aapt2 | sort -V | tail -n 1)
+          APK_PATH=$(find . -path "*/outputs/apk/release/*.apk" | head -n 1)
+          echo "Inspecting APK: $APK_PATH"
+          "$AAPT2" dump badging "$APK_PATH" | head -n 3
+          CERT_INFO=$("$APKSIGNER" verify --print-certs -v "$APK_PATH")
+          echo "$CERT_INFO"
+          echo "$CERT_INFO" | grep -iq "7aacad2a2c262e9eb401fe2463c7f89110b74e3cbf174f0c4d4fd40ac732380f"
+          mkdir -p dist_apk
+          cp "$APK_PATH" "dist_apk/AirTouchAI-v2.4.${GITHUB_RUN_NUMBER}.apk"
+
+      - name: Upload Signed APK
         uses: actions/upload-artifact@v4
         with:
           name: AirTouchAI-debug-apk
-          path: "**/build/outputs/apk/debug/*.apk"
+          path: dist_apk/*.apk
+          if-no-files-found: error
