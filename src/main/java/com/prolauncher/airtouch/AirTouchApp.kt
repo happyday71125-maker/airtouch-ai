@@ -730,9 +730,13 @@ class MainActivity : AppCompatActivity() {
        root.addView(TextView(this).apply { text = "AIRTOUCH AI v$vName (Build $vCode)"; textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
        val hasLegacyConflictPkg = packageName != "com.prolauncher.airtouch" && runCatching { packageManager.getPackageInfo("com.prolauncher.airtouch", 0); true }.getOrDefault(false)
        if (hasLegacyConflictPkg) {
-           root.addView(createBtn("⚠ [구버전 충돌 앱 감지됨] 터치하여 이전 AirTouch 삭제하기", false) {
-               startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:com.prolauncher.airtouch")))
-               }.apply { setBackgroundColor(Color.parseColor("#B71C1C")) }
+           val delBtn = createBtn("⚠ [구버전 충돌 앱 감지됨] 터치하여 이전 AirTouch 삭제하기", false) {
+               val delUri = Uri.parse("package:com.prolauncher.airtouch")
+               val delIntent = Intent(Intent.ACTION_DELETE, delUri)
+               startActivity(delIntent)
+           }
+           delBtn.setBackgroundColor(Color.parseColor("#B71C1C"))
+           root.addView(delBtn)
                         }
         root.addView(TextView(this).apply { text = "실시간 손 거리(cm) 정밀 보정 + 마이크로 조준 + 가로/세로 100% 자동 대응"; textSize = 12f; setTextColor(Color.parseColor("#9E9E9E")); setPadding(0, dp(4), 0, dp(14)) })
 
