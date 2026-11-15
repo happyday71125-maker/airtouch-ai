@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.*
 import android.media.AudioManager
+import android.net.Uri
 import android.os.*
 import android.provider.Settings
 import android.service.quicksettings.Tile
@@ -696,8 +697,11 @@ object LauncherAirTouchBridge {
     fun isRunning(): Boolean = AirTouchTrackingService.isRunning
     fun isAccessibilityEnabled(context: Context): Boolean {
         if (AirTouchAccessibilityService.instance != null) return true
-        val expected = "${context.packageName}/${AirTouchAccessibilityService::class.java.canonicalName}"
-        return Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)?.contains(expected) == true
+        val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        val pkg = context.packageName
+        val fullCls = AirTouchAccessibilityService::class.java.name
+        val shortCls = ".${AirTouchAccessibilityService::class.java.simpleName}"
+        return enabled.contains("$pkg/$fullCls") || enabled.contains("$pkg/$shortCls")
     }
     fun start(context: Context) = ContextCompat.startForegroundService(context, Intent(context, AirTouchTrackingService::class.java).apply { action = AirTouchTrackingService.ACTION_START })
     fun stop(context: Context) { context.startService(Intent(context, AirTouchTrackingService::class.java).apply { action = AirTouchTrackingService.ACTION_STOP }) }
@@ -720,7 +724,16 @@ class MainActivity : AppCompatActivity() {
     private fun buildUi(): ScrollView {
         val scroll = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0D0F12")) }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(24), dp(18), dp(40)) }
-        root.addView(TextView(this).apply { text = "AIRTOUCH AI v2.3 :: 3D DEPTH & ROTATION"; textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
+       val pInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
+       val vName = pInfo?.versionName ?: "2.4"
+       val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) (pInfo?.longVersionCode ?: 0L) else @Suppress("DEPRECATION") (pInfo?.versionCode?.toLong() ?: 0L)
+       root.addView(TextView(this).apply { text = "AIRTOUCH AI v$vName (Build $vCode)"; textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
+       val hasLegacyConflictPkg = packageName != "com.prolauncher.airtouch" && runCatching { packageManager.getPackageInfo("com.prolauncher.airtouch", 0); true }.getOrDefault(false)
+       if (hasLegacyConflictPkg) {
+           root.addView(createBtn("⚠ [구버전 충돌 앱 감지됨] 터치하여 이전 AirTouch 삭제하기", false) {
+               startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:com.prolauncher.airtouch")))
+               }.apply { setBackgroundColor(Color.parseColor("#B71C1C")) }
+                        }
         root.addView(TextView(this).apply { text = "실시간 손 거리(cm) 정밀 보정 + 마이크로 조준 + 가로/세로 100% 자동 대응"; textSize = 12f; setTextColor(Color.parseColor("#9E9E9E")); setPadding(0, dp(4), 0, dp(14)) })
 
         statusText = TextView(this).apply { textSize = 13f; typeface = Typeface.MONOSPACE; setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#181B20")); setPadding(dp(12), dp(12), dp(12), dp(12)) }
