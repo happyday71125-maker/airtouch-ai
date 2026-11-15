@@ -7,7 +7,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <package android:name="com.prolauncher.airtouch" />
+    </queries>
 
     <application
         android:allowBackup="true"
@@ -18,7 +23,7 @@
         android:theme="@style/Theme.AppCompat.NoActionBar">
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.prolauncher.airtouch.MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -28,7 +33,7 @@
         </activity>
 
         <service
-            android:name=".AirTouchAccessibilityService"
+            android:name="com.prolauncher.airtouch.AirTouchAccessibilityService"
             android:exported="true"
             android:label="AirTouch 제스처 컨트롤"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -41,12 +46,12 @@
         </service>
 
         <service
-            android:name=".AirTouchTrackingService"
+            android:name="com.prolauncher.airtouch.AirTouchTrackingService"
             android:exported="false"
             android:foregroundServiceType="camera" />
 
         <service
-            android:name=".AirTouchTileService"
+            android:name="com.prolauncher.airtouch.AirTouchTileService"
             android:exported="true"
             android:icon="@android:drawable/ic_menu_view"
             android:label="AirTouch"
