@@ -726,7 +726,7 @@ class MainActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(24), dp(18), dp(40)) }
        val pInfo = runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull()
        val vName = pInfo?.versionName ?: "2.4"
-       val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) (pInfo?.longVersionCode ?: 0L) else @Suppress("DEPRECATION") (pInfo?.versionCode?.toLong() ?: 0L)
+       @Suppress("DEPRECATION") val vCode = pInfo?.versionCode ?: 0
        root.addView(TextView(this).apply { text = "AIRTOUCH AI v$vName (Build $vCode)"; textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676")) })
        val hasLegacyConflictPkg = packageName != "com.prolauncher.airtouch" && runCatching { packageManager.getPackageInfo("com.prolauncher.airtouch", 0); true }.getOrDefault(false)
        if (hasLegacyConflictPkg) {
