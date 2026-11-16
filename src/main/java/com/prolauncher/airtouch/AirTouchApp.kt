@@ -45,7 +45,7 @@ import java.util.concurrent.Executors
 import kotlin.math.*
 
 /**
- * 단축 포즈에 매핑 가능한 시스템·미디어 액션 (기본 포인터/클릭/스크롤과 중복되는 항목 제거)
+ * 12종 손가락 제스처 및 핀치 줌에서 실행 가능한 전체 시스템·미디어·화면 확대/축소 액션
  */
 enum class AirTouchAction(val titleKo: String) {
     NONE("동작 없음"),
@@ -56,6 +56,8 @@ enum class AirTouchAction(val titleKo: String) {
     GLOBAL_QUICK_SETTINGS("빠른 설정창 열기"),
     GLOBAL_LOCK_SCREEN("화면 잠금 (Lock Screen)"),
     GLOBAL_SCREENSHOT("화면 캡처 (Screenshot)"),
+    ZOOM_IN_AT_CURSOR("커서 위치 화면 확대 (Pinch Zoom In +)"),
+    ZOOM_OUT_AT_CURSOR("커서 위치 화면 축소 (Pinch Zoom Out -)"),
     DOUBLE_TAP_AT_CURSOR("커서 위치 더블 클릭"),
     MEDIA_PLAY_PAUSE("미디어 재생 / 일시정지"),
     MEDIA_NEXT("다음 곡 / 영상"),
@@ -66,18 +68,25 @@ enum class AirTouchAction(val titleKo: String) {
 }
 
 /**
- * 손바닥 스크롤(3~5손가락) 및 검지 포인팅(1손가락)과 절대 겹치지 않는 5가지 독립 단축 포즈
+ * 손가락 5개 조합으로 구분 가능한 최대 12가지 정적 손 모양 제스처 (0.6초 정지 시 발동)
  */
 enum class HandPose(val key: String, val labelKo: String, val howToKo: String, val defaultAction: AirTouchAction) {
-    PEACE("pose_v30_peace", "\u270C\uFE0F 브이 (검지+중지)", "약지·새끼는 접고 검지·중지만 편 채 0.6초 정지", AirTouchAction.GLOBAL_BACK),
-    ROCK_ON("pose_v30_rock", "\uD83E\uDD18 락앤롤 (검지+새끼)", "중지·약지는 접고 검지·새끼만 편 채 0.6초 정지", AirTouchAction.GLOBAL_HOME),
-    SHAKA("pose_v30_shaka", "\uD83E\uDD19 샤카 (엄지+새끼)", "검지·중지·약지는 접고 엄지·새끼만 편 채 0.6초 정지", AirTouchAction.GLOBAL_RECENTS),
-    THUMB_UP("pose_v30_thumb", "\uD83D\uDC4D 엄지 척 (엄지만 폄)", "네 손가락을 모두 접고 엄지만 편 채 0.6초 정지", AirTouchAction.MEDIA_PLAY_PAUSE),
-    FIST("pose_v30_fist", "\u270A 주먹 쥐기 (모두 접음)", "다섯 손가락을 모두 말아 쥔 채 0.6초 정지", AirTouchAction.TOGGLE_PAUSE_TRACKING)
+    PEACE("pose_v31_peace", "\u270C\uFE0F 브이 (검지+중지)", "약지·새끼는 접고 검지·중지 2개만 편 채 0.6초 정지", AirTouchAction.GLOBAL_BACK),
+    L_GUN("pose_v31_lgun", "\uD83D\uDC49 총 모양 L (엄지+검지)", "중지·약지·새끼는 접고 엄지·검지를 ㄱ자로 활짝 펴서 0.6초 정지", AirTouchAction.ZOOM_IN_AT_CURSOR),
+    PINCH_THREE("pose_v31_p3", "\uD83E\uDD1F 스파이더맨 (엄지+검지+새끼)", "중지·약지만 접고 엄지·검지·새끼 3개를 편 채 0.6초 정지", AirTouchAction.ZOOM_OUT_AT_CURSOR),
+    THREE_FINGERS("pose_v31_three", "\u261D\uFE0F 세 손가락 (검지+중지+약지)", "엄지·새끼는 접고 검지·중지·약지 3개를 편 채 0.6초 정지", AirTouchAction.GLOBAL_RECENTS),
+    THUMB_INDEX_MID("pose_v31_tim", "\u270B 삼지 포즈 (엄지+검지+중지)", "약지·새끼는 접고 엄지·검지·중지 3개를 편 채 0.6초 정지", AirTouchAction.GLOBAL_NOTIFICATIONS),
+    FOUR_FINGERS("pose_v31_four", "\uD83D\uDD96 네 손가락 (엄지만 접음)", "엄지만 접고 나머지 4손가락을 편 채 제자리에서 0.6초 정지", AirTouchAction.VOLUME_UP),
+    OPEN_PALM("pose_v31_palm", "\uD83D\uDD90\uFE0F 손바닥 활짝 (5개 모두 폄)", "다섯 손가락을 모두 편 채 흔들지 않고 제자리 0.6초 정지", AirTouchAction.GLOBAL_HOME),
+    ROCK_ON("pose_v31_rock", "\uD83E\uDD18 락앤롤 (검지+새끼)", "엄지·중지·약지는 접고 검지·새끼만 편 채 0.6초 정지", AirTouchAction.GLOBAL_LOCK_SCREEN),
+    SHAKA("pose_v31_shaka", "\uD83E\uDD19 샤카/전화 (엄지+새끼)", "검지·중지·약지는 접고 엄지·새끼만 편 채 0.6초 정지", AirTouchAction.VOLUME_DOWN),
+    THUMB_UP("pose_v31_thumb", "\uD83D\uDC4D 엄지 척 (엄지만 폄)", "네 손가락을 모두 접고 엄지만 편 채 0.6초 정지", AirTouchAction.MEDIA_PLAY_PAUSE),
+    PINKY_ONLY("pose_v31_pinky", "\uD83E\uDD1E 새끼손가락 약속 (새끼만 폄)", "엄지·검지·중지·약지를 접고 새끼손가락만 편 채 0.6초 정지", AirTouchAction.GLOBAL_SCREENSHOT),
+    FIST("pose_v31_fist", "\u270A 주먹 쥐기 (5개 모두 접음)", "다섯 손가락을 모두 말아 쥔 채 0.6초 정지", AirTouchAction.TOGGLE_PAUSE_TRACKING)
 }
 
 enum class ActiveGestureMode {
-    PAUSED, PINCH_CLICK, PALM_SCROLL, SHORTCUT_POSE, POINTER_MOVE
+    PAUSED, PINCH_CLICK, PINCH_ZOOM, PALM_SCROLL, SHORTCUT_POSE, POINTER_MOVE
 }
 
 class AirTouchConfig(context: Context) {
@@ -91,12 +100,16 @@ class AirTouchConfig(context: Context) {
         get() = prefs.getFloat("pinch_ratio_v30", 0.32f)
         set(v) = prefs.edit().putFloat("pinch_ratio_v30", v.coerceIn(0.18f, 0.46f)).apply()
 
+    var pinchZoomEnabled: Boolean
+        get() = prefs.getBoolean("pinch_zoom_enabled_v31", true)
+        set(v) = prefs.edit().putBoolean("pinch_zoom_enabled_v31", v).apply()
+
     var swipeScrollEnabled: Boolean
         get() = prefs.getBoolean("swipe_scroll_v30", true)
         set(v) = prefs.edit().putBoolean("swipe_scroll_v30", v).apply()
 
     var palmSwipeThreshold: Float
-        get() = prefs.getFloat("palm_swipe_thresh_v30", 0.075f)
+        get() = prefs.getFloat("palm_swipe_thresh_v30", 0.072f)
         set(v) = prefs.edit().putFloat("palm_swipe_thresh_v30", v.coerceIn(0.045f, 0.150f)).apply()
 
     var invertPalmScroll: Boolean
@@ -125,8 +138,9 @@ class AirTouchConfig(context: Context) {
         val ed = prefs.edit()
             .putFloat("cursor_speed_v30", 1.75f)
             .putFloat("pinch_ratio_v30", 0.32f)
+            .putBoolean("pinch_zoom_enabled_v31", true)
             .putBoolean("swipe_scroll_v30", true)
-            .putFloat("palm_swipe_thresh_v30", 0.075f)
+            .putFloat("palm_swipe_thresh_v30", 0.072f)
             .putBoolean("invert_palm_scroll_v30", false)
         for (p in HandPose.values()) ed.putString(p.key, p.defaultAction.name)
         ed.apply()
@@ -144,11 +158,9 @@ object AirTouchTelemetry {
     @Volatile var lastTriggeredActionText: String = "없음"
     @Volatile var inferenceLatencyMs: Long = 0L
     @Volatile var scrollCount: Int = 0
+    @Volatile var zoomCount: Int = 0
 }
 
-/**
- * 수학적으로 0 < alpha < 1 범위가 항상 보장되는 정통 1€ 필터
- */
 class StableOneEuroFilter(
     private val minCutoffHz: Float = 1.45f,
     private val beta: Float = 16.0f,
@@ -191,6 +203,7 @@ class StableOneEuroFilter(
 
 class GestureClassifier(private val config: AirTouchConfig) {
     enum class ScrollDirection { NONE, DOWN, UP, LEFT, RIGHT }
+    enum class ZoomDirection { NONE, IN, OUT }
 
     data class FrameEvaluation(
         val mode: ActiveGestureMode,
@@ -200,10 +213,12 @@ class GestureClassifier(private val config: AirTouchConfig) {
         val gaugeProgress: Float,
         val tapClicked: Boolean,
         val longPressed: Boolean,
+        val zoomDirection: ZoomDirection,
+        val zoomScaleStep: Float,
         val triggeredPoseAction: AirTouchAction?,
         val scrollDirection: ScrollDirection,
         val scrollStrength: Float,
-        val activeScrollBadge: String,
+        val activeFeedbackBadge: String,
         val nearFrameEdge: Boolean,
         val estimatedCm: Int,
         val landmarksXY: FloatArray,
@@ -225,30 +240,37 @@ class GestureClassifier(private val config: AirTouchConfig) {
     private val fingerScore = FloatArray(5) { 0f }
     private val fingerState = BooleanArray(5) { false }
 
+    // 핀치 클릭 & 핀치 줌(Zoom) 상태
     private var prevPinchRatio = 1.0f
     private var isCurrentlyPinching = false
     private var pinchStartTimeMs = 0L
+    private var pinchStartPalmY = 0.5f
+    private var pinchZoomLatched = false
+    private var zoomAnchorPalmY = 0.5f
+    private var lastZoomStepTimeMs = 0L
     private var longPressTriggered = false
     private var postPinchFreezeUntilMs = 0L
 
-    private var palmModeLatchUntilMs = 0L
+    // 다중 프레임 손바닥 스크롤 슬라이딩 윈도우 & 두 손가락 오픈-스프레드 줌 버퍼
     private val bufSize = 12
     private val palmBufX = FloatArray(bufSize)
     private val palmBufY = FloatArray(bufSize)
+    private val pinchRatioBuf = FloatArray(bufSize)
     private val palmBufTs = LongArray(bufSize)
     private var palmBufHead = 0
     private var palmBufCount = 0
     private var prevSmoothPalmX = -1f; private var prevSmoothPalmY = -1f
+    private var lastScrollHandOpenMs = 0L
+    private var lastTwoFingerZoomReadyMs = 0L
     private var lastSwipeTriggerTimeMs = 0L
     private var lastScrollDir = ScrollDirection.NONE
-    private var scrollBadgeUntilMs = 0L
-    private var scrollBadgeLabel = ""
+    private var feedbackBadgeUntilMs = 0L
+    private var feedbackBadgeLabel = ""
 
     private var currentCandidatePose: HandPose? = null
     private var poseStartTimeMs = 0L
     private var poseTriggeredInHold = false
 
-    // 스레드 경합(Race Condition) 완전 방지용 4슬롯 랜드마크 링버퍼
     private val landmarkRing = Array(4) { FloatArray(42) }
     private var landmarkRingIdx = 0
 
@@ -268,16 +290,16 @@ class GestureClassifier(private val config: AirTouchConfig) {
         val wrist = lm[0]; val thumbTip = lm[4]; val indexMcp = lm[5]; val indexPip = lm[6]
         val indexTip = lm[8]; val middleMcp = lm[9]; val pinkyMcp = lm[17]
 
-        val rawScale2D = maxOf(dist2D(wrist, middleMcp), dist2D(wrist, indexMcp) * 0.95f, dist2D(indexMcp, pinkyMcp) * 1.18f).coerceIn(0.06f, 0.55f)
+        val rawScale2D = maxOf(dist2D(wrist, middleMcp), dist2D(wrist, indexMcp) * 0.95f, dist2D(indexMcp, pinkyMcp) * 1.18f).coerceIn(0.05f, 0.55f)
         if (!handScaleInitialized || (now - lastValidEvalMs) > 600L) {
             smoothedHandScale2D = rawScale2D; handScaleInitialized = true
         } else {
-            smoothedHandScale2D += (rawScale2D - smoothedHandScale2D) * 0.10f
+            smoothedHandScale2D += (rawScale2D - smoothedHandScale2D) * 0.12f
         }
         val handScale = smoothedHandScale2D
-        val estCm = (6.4f / handScale).roundToInt().coerceIn(15, 95)
+        val estCm = (6.4f / handScale).roundToInt().coerceIn(15, 110)
         AirTouchTelemetry.estimatedDistanceCm = estCm
-        val distGain = (0.185f / handScale).coerceIn(0.65f, 1.95f)
+        val distGain = (0.185f / handScale).coerceIn(0.65f, 2.15f)
 
         val nearEdge = indexMcp.x() !in 0.03f..0.97f || indexMcp.y() !in 0.03f..0.97f || indexTip.x() !in 0.01f..0.99f || indexTip.y() !in 0.01f..0.99f
         val (smoothFingerX, smoothFingerY) = fingerFilter.filter(
@@ -299,7 +321,7 @@ class GestureClassifier(private val config: AirTouchConfig) {
             prevKnuckleX = smoothKnuckleX; prevKnuckleY = smoothKnuckleY
             prevSmoothPalmX = palmX; prevSmoothPalmY = palmY
             prevPinchRatio = dist2D(thumbTip, indexTip) / handScale
-            palmBufCount = 0; palmBufHead = 0; palmModeLatchUntilMs = 0L
+            palmBufCount = 0; palmBufHead = 0
         }
         val dtSec = ((now - lastValidEvalMs).coerceIn(8L, 100L)) / 1000f
         lastValidEvalMs = now
@@ -320,128 +342,205 @@ class GestureClassifier(private val config: AirTouchConfig) {
 
         val ratioThreshold = config.pinchRatioThreshold
         val isTightFist = !middleUp && !ringUp && !pinkyUp && (dist2D(indexTip, indexMcp) / handScale < 0.36f)
-        val pinchActive = !isTightFist && (if (isCurrentlyPinching) pinchRatio < (ratioThreshold * 1.26f) else pinchRatio < ratioThreshold)
+        val pinchActive = !isTightFist && (if (isCurrentlyPinching) pinchRatio < (ratioThreshold * 1.30f) else pinchRatio < ratioThreshold)
         val pinchFreeze = isCurrentlyPinching || pinchActive || (now < postPinchFreezeUntilMs) ||
             (pinchRatio < ratioThreshold * 1.15f) ||
             (pinchClosingRate > 0.015f && pinchRatio < ratioThreshold * 1.38f)
-
-        // [모드 분리 핵심] 검지+중지+약지 3개 이상 펴고 엄지-검지가 벌어진 상태 = 100% 손바닥 스크롤 전용 모드!
-        val isOpenPalmNow = config.swipeScrollEnabled && indexUp && middleUp && ringUp && !isCurrentlyPinching && !pinchActive && (pinchRatio > ratioThreshold * 1.60f)
-        if (isOpenPalmNow) {
-            palmModeLatchUntilMs = now + 240L
-        } else if (!indexUp || isCurrentlyPinching || pinchActive || (!middleUp && !ringUp)) {
-            // 검지 포인팅(☝️)이나 클릭(OK), 주먹(✊)으로 바꾸면 즉시 손바닥 모드 해제
-            palmModeLatchUntilMs = 0L
-        }
-        val inPalmScrollMode = !isTrackingPaused && (now < palmModeLatchUntilMs)
 
         val instStepX = if (prevSmoothPalmX >= 0f) (palmX - prevSmoothPalmX) else 0f
         val instStepY = if (prevSmoothPalmY >= 0f) (palmY - prevSmoothPalmY) else 0f
         val palmSpeedNorm = (hypot(instStepX, instStepY) / dtSec) * distGain
         prevSmoothPalmX = palmX; prevSmoothPalmY = palmY
 
-        // 1) 클릭 & 길게 누르기 판정 (일시정지 및 손바닥 스크롤 모드와 완전 분리)
+        // 링버퍼에 손바닥 위치 및 엄지-검지 벌림 비율 기록
+        palmBufX[palmBufHead] = palmX
+        palmBufY[palmBufHead] = palmY
+        pinchRatioBuf[palmBufHead] = pinchRatio
+        palmBufTs[palmBufHead] = now
+        palmBufHead = (palmBufHead + 1) % bufSize
+        if (palmBufCount < bufSize) palmBufCount++
+
+        // 1) 핀치 클릭 + 길게 누르기 + [핀치 홀드 상하 드래그 줌] 통합 판정
         var tapClicked = false; var longPressed = false; var pinchProgress = 0f
+        var zoomDir = ZoomDirection.NONE; var zoomScaleStep = 1.0f
+
         if (!isTrackingPaused && pinchActive) {
             if (!isCurrentlyPinching) {
-                isCurrentlyPinching = true; pinchStartTimeMs = now; longPressTriggered = false
+                isCurrentlyPinching = true
+                pinchStartTimeMs = now
+                pinchStartPalmY = palmY
+                zoomAnchorPalmY = palmY
+                pinchZoomLatched = false
+                longPressTriggered = false
             } else {
                 val heldMs = now - pinchStartTimeMs
-                pinchProgress = (heldMs.toFloat() / 650f).coerceIn(0f, 1f)
-                if (!longPressTriggered && heldMs >= 650L) {
-                    longPressed = true; longPressTriggered = true; postPinchFreezeUntilMs = now + 220L
-                    AirTouchTelemetry.lastTriggeredActionText = "\uD83D\uDC4C 길게 누르기 (Long Press)"
+                val dragFromStartY = (palmY - pinchStartPalmY) * distGain
+                // 핀치한 채 손을 위·아래로 3.2cm 이상 움직이면 즉시 [핀치 드래그 줌 모드]로 전환!
+                if (config.pinchZoomEnabled && !longPressTriggered && abs(dragFromStartY) >= 0.052f) {
+                    pinchZoomLatched = true
+                }
+                if (pinchZoomLatched) {
+                    val stepDy = (palmY - zoomAnchorPalmY) * distGain
+                    if (abs(stepDy) >= 0.048f && (now - lastZoomStepTimeMs) > 250L) {
+                        // 손을 위로 올리면(stepDy < 0) 확대(ZOOM IN), 아래로 내리면 축소(ZOOM OUT)
+                        zoomDir = if (stepDy < 0f) ZoomDirection.IN else ZoomDirection.OUT
+                        zoomScaleStep = (abs(stepDy) / 0.048f).coerceIn(1.0f, 1.75f)
+                        zoomAnchorPalmY = palmY
+                        lastZoomStepTimeMs = now
+                        postPinchFreezeUntilMs = now + 240L
+                        AirTouchTelemetry.zoomCount++
+                        feedbackBadgeLabel = if (zoomDir == ZoomDirection.IN) "\uD83D\uDD0D 화면 확대 (+)" else "\uD83D\uDD0D 화면 축소 (-)"
+                        feedbackBadgeUntilMs = now + 550L
+                        AirTouchTelemetry.lastTriggeredActionText = feedbackBadgeLabel
+                    }
+                } else {
+                    pinchProgress = (heldMs.toFloat() / 650f).coerceIn(0f, 1f)
+                    if (!longPressTriggered && heldMs >= 650L) {
+                        longPressed = true; longPressTriggered = true; postPinchFreezeUntilMs = now + 220L
+                        AirTouchTelemetry.lastTriggeredActionText = "\uD83D\uDC4C 길게 누르기 (Long Press)"
+                    }
                 }
             }
         } else if (isCurrentlyPinching) {
             val heldMs = now - pinchStartTimeMs
-            if (!longPressTriggered && heldMs in 18L..649L && !isTrackingPaused) {
+            if (!longPressTriggered && !pinchZoomLatched && heldMs in 18L..649L && !isTrackingPaused) {
                 tapClicked = true; postPinchFreezeUntilMs = now + 220L
                 AirTouchTelemetry.lastTriggeredActionText = "\uD83D\uDC4C 단일 클릭 (Tap)"
             }
             isCurrentlyPinching = false
+            pinchZoomLatched = false
         }
 
-        // 2) 손바닥 스크롤 슬라이딩 윈도우 판정 (커서는 제자리에 고정된 상태로 상하좌우 스크롤만 깔끔하게 실행)
+        // 2) [두 손가락(엄지+검지) 공중 벌리기/오므리기 핀치 줌] — 중지·약지·새끼는 접고 엄지·검지 간격을 빠르게 벌리면 확대, 오므리면 축소!
+        val isTwoFingerZoomPosture = !middleUp && !ringUp && !pinkyUp && indexUp && !isCurrentlyPinching
+        if (isTwoFingerZoomPosture) lastTwoFingerZoomReadyMs = now
+        if (config.pinchZoomEnabled && !isTrackingPaused && zoomDir == ZoomDirection.NONE &&
+            !isCurrentlyPinching && (now - lastTwoFingerZoomReadyMs) <= 180L &&
+            (now - lastZoomStepTimeMs) > 360L && (now - handEnteredFrameMs) > 180L && palmSpeedNorm < 0.28f && palmBufCount >= 3
+        ) {
+            var maxRatioDelta = 0f
+            for (k in 1 until palmBufCount) {
+                val idx = (palmBufHead - 1 - k + bufSize * 2) % bufSize
+                val dtWin = now - palmBufTs[idx]
+                if (dtWin < 55L) continue
+                if (dtWin > 260L) break
+                val rPrev = pinchRatioBuf[idx]
+                // 클릭 동작(ratioThreshold 근처)과 겹치지 않도록 0.44 이상 구간에서의 벌림/오므림만 줌으로 인식!
+                if (rPrev >= ratioThreshold * 1.38f && pinchRatio >= ratioThreshold * 1.38f) {
+                    val delta = pinchRatio - rPrev
+                    if (abs(delta) > abs(maxRatioDelta)) maxRatioDelta = delta
+                }
+            }
+            if (maxRatioDelta >= 0.36f && thumbUp) {
+                zoomDir = ZoomDirection.IN
+                zoomScaleStep = (maxRatioDelta / 0.36f).coerceIn(1.0f, 1.75f)
+                lastZoomStepTimeMs = now; postPinchFreezeUntilMs = now + 240L
+                palmBufCount = 0; palmBufHead = 0
+                AirTouchTelemetry.zoomCount++
+                feedbackBadgeLabel = "\uD83D\uDD0D 엄지·검지 벌림 확대 (+)"
+                feedbackBadgeUntilMs = now + 550L
+                AirTouchTelemetry.lastTriggeredActionText = feedbackBadgeLabel
+            } else if (maxRatioDelta <= -0.38f && pinchRatio >= ratioThreshold * 1.42f) {
+                zoomDir = ZoomDirection.OUT
+                zoomScaleStep = (abs(maxRatioDelta) / 0.38f).coerceIn(1.0f, 1.75f)
+                lastZoomStepTimeMs = now; postPinchFreezeUntilMs = now + 240L
+                palmBufCount = 0; palmBufHead = 0
+                AirTouchTelemetry.zoomCount++
+                feedbackBadgeLabel = "\uD83D\uDD0D 엄지·검지 오므림 축소 (-)"
+                feedbackBadgeUntilMs = now + 550L
+                AirTouchTelemetry.lastTriggeredActionText = feedbackBadgeLabel
+            }
+        }
+
+        // 3) 손바닥 상하좌우 스크롤 판정 (손가락 3개 이상 펴고 움직일 때만 스크롤 발동; 멈춰 있으면 정적 포즈 허용!)
+        val isOpenPalmForScroll = indexUp && middleUp && ringUp && !isCurrentlyPinching && !pinchActive && (pinchRatio > ratioThreshold * 1.50f)
+        if (isOpenPalmForScroll) lastScrollHandOpenMs = now
+
         var scrollDir = ScrollDirection.NONE
         var scrollStrength = 1.0f
-        if (inPalmScrollMode) {
-            palmBufX[palmBufHead] = palmX; palmBufY[palmBufHead] = palmY; palmBufTs[palmBufHead] = now
-            palmBufHead = (palmBufHead + 1) % bufSize
-            if (palmBufCount < bufSize) palmBufCount++
-
-            if ((now - handEnteredFrameMs) > 150L && (now - lastSwipeTriggerTimeMs) > 280L && palmBufCount >= 2) {
-                var bestDx = 0f; var bestDy = 0f; var bestMag = 0f; var bestDtMs = 100L
-                for (k in 1 until palmBufCount) {
-                    val idx = (palmBufHead - 1 - k + bufSize * 2) % bufSize
-                    val dtWin = now - palmBufTs[idx]
-                    if (dtWin < 40L) continue
-                    if (dtWin > 290L) break
-                    val dx = (palmX - palmBufX[idx]) * distGain
-                    val dy = (palmY - palmBufY[idx]) * distGain
-                    val mag = hypot(dx, dy)
-                    if (mag > bestMag) { bestMag = mag; bestDx = dx; bestDy = dy; bestDtMs = dtWin }
+        if (config.swipeScrollEnabled && !isTrackingPaused && !isCurrentlyPinching && !pinchFreeze &&
+            zoomDir == ZoomDirection.NONE && (now - handEnteredFrameMs) > 150L &&
+            (now - lastScrollHandOpenMs) <= 250L && (now - lastSwipeTriggerTimeMs) > 280L && palmBufCount >= 2
+        ) {
+            var bestDx = 0f; var bestDy = 0f; var bestMag = 0f; var bestDtMs = 100L
+            for (k in 1 until palmBufCount) {
+                val idx = (palmBufHead - 1 - k + bufSize * 2) % bufSize
+                val dtWin = now - palmBufTs[idx]
+                if (dtWin < 40L) continue
+                if (dtWin > 290L) break
+                val dx = (palmX - palmBufX[idx]) * distGain
+                val dy = (palmY - palmBufY[idx]) * distGain
+                val mag = hypot(dx, dy)
+                if (mag > bestMag) { bestMag = mag; bestDx = dx; bestDy = dy; bestDtMs = dtWin }
+            }
+            val baseThresh = config.palmSwipeThreshold
+            val avgSpeed = bestMag / (bestDtMs.coerceAtLeast(40L) / 1000f)
+            if (bestMag >= baseThresh && avgSpeed >= 0.32f) {
+                var cand = ScrollDirection.NONE
+                var domDisp = 0f
+                if (abs(bestDy) >= baseThresh && abs(bestDy) > abs(bestDx) * 1.15f && (bestDy * instStepY >= -0.002f)) {
+                    val moveUp = bestDy < 0f
+                    cand = if (!config.invertPalmScroll) (if (moveUp) ScrollDirection.DOWN else ScrollDirection.UP)
+                    else (if (moveUp) ScrollDirection.UP else ScrollDirection.DOWN)
+                    domDisp = abs(bestDy)
+                } else if (abs(bestDx) >= baseThresh * 1.08f && abs(bestDx) > abs(bestDy) * 1.20f && (bestDx * instStepX >= -0.002f)) {
+                    cand = if (bestDx < 0f) ScrollDirection.LEFT else ScrollDirection.RIGHT
+                    domDisp = abs(bestDx)
                 }
-                val baseThresh = config.palmSwipeThreshold
-                val avgSpeed = bestMag / (bestDtMs.coerceAtLeast(40L) / 1000f)
-                if (bestMag >= baseThresh && avgSpeed >= 0.32f) {
-                    var cand = ScrollDirection.NONE
-                    var domDisp = 0f
-                    if (abs(bestDy) >= baseThresh && abs(bestDy) > abs(bestDx) * 1.15f && (bestDy * instStepY >= -0.002f)) {
-                        val moveUp = bestDy < 0f
-                        cand = if (!config.invertPalmScroll) (if (moveUp) ScrollDirection.DOWN else ScrollDirection.UP)
-                        else (if (moveUp) ScrollDirection.UP else ScrollDirection.DOWN)
-                        domDisp = abs(bestDy)
-                    } else if (abs(bestDx) >= baseThresh * 1.08f && abs(bestDx) > abs(bestDy) * 1.20f && (bestDx * instStepX >= -0.002f)) {
-                        cand = if (bestDx < 0f) ScrollDirection.LEFT else ScrollDirection.RIGHT
-                        domDisp = abs(bestDx)
-                    }
-                    if (cand != ScrollDirection.NONE) {
-                        val sinceLast = now - lastSwipeTriggerTimeMs
-                        val isOpposite = (lastScrollDir == ScrollDirection.DOWN && cand == ScrollDirection.UP) ||
-                            (lastScrollDir == ScrollDirection.UP && cand == ScrollDirection.DOWN) ||
-                            (lastScrollDir == ScrollDirection.LEFT && cand == ScrollDirection.RIGHT) ||
-                            (lastScrollDir == ScrollDirection.RIGHT && cand == ScrollDirection.LEFT)
-                        if (!isOpposite || sinceLast > 820L || (domDisp >= baseThresh * 1.65f && avgSpeed >= 0.70f)) {
-                            scrollDir = cand
-                            scrollStrength = (domDisp / baseThresh).coerceIn(1.0f, 1.85f)
-                            lastSwipeTriggerTimeMs = now
-                            lastScrollDir = cand
-                            palmBufCount = 0; palmBufHead = 0
-                            AirTouchTelemetry.scrollCount++
-                            scrollBadgeLabel = when (cand) {
-                                ScrollDirection.DOWN -> "▼ 아래 스크롤"
-                                ScrollDirection.UP -> "▲ 위로 스크롤"
-                                ScrollDirection.LEFT -> "◀ 왼쪽 스와이프"
-                                ScrollDirection.RIGHT -> "▶ 오른쪽 스와이프"
-                                else -> ""
-                            }
-                            scrollBadgeUntilMs = now + 520L
-                            AirTouchTelemetry.lastTriggeredActionText = "\uD83D\uDD90\uFE0F $scrollBadgeLabel"
+                if (cand != ScrollDirection.NONE) {
+                    val sinceLast = now - lastSwipeTriggerTimeMs
+                    val isOpposite = (lastScrollDir == ScrollDirection.DOWN && cand == ScrollDirection.UP) ||
+                        (lastScrollDir == ScrollDirection.UP && cand == ScrollDirection.DOWN) ||
+                        (lastScrollDir == ScrollDirection.LEFT && cand == ScrollDirection.RIGHT) ||
+                        (lastScrollDir == ScrollDirection.RIGHT && cand == ScrollDirection.LEFT)
+                    if (!isOpposite || sinceLast > 820L || (domDisp >= baseThresh * 1.65f && avgSpeed >= 0.70f)) {
+                        scrollDir = cand
+                        scrollStrength = (domDisp / baseThresh).coerceIn(1.0f, 1.85f)
+                        lastSwipeTriggerTimeMs = now
+                        lastScrollDir = cand
+                        palmBufCount = 0; palmBufHead = 0
+                        currentCandidatePose = null; poseTriggeredInHold = false
+                        AirTouchTelemetry.scrollCount++
+                        feedbackBadgeLabel = when (cand) {
+                            ScrollDirection.DOWN -> "▼ 아래 스크롤"
+                            ScrollDirection.UP -> "▲ 위로 스크롤"
+                            ScrollDirection.LEFT -> "◀ 왼쪽 스와이프"
+                            ScrollDirection.RIGHT -> "▶ 오른쪽 스와이프"
+                            else -> ""
                         }
+                        feedbackBadgeUntilMs = now + 520L
+                        AirTouchTelemetry.lastTriggeredActionText = "\uD83D\uDD90\uFE0F $feedbackBadgeLabel"
                     }
                 }
             }
-        } else {
-            palmBufCount = 0; palmBufHead = 0
         }
 
-        // 3) 5종 독립 정적 단축 포즈 판정 (스크롤 모드·포인팅·핀치와 완전히 독립된 모양만 매칭)
-        val rawPose = if (inPalmScrollMode || isCurrentlyPinching || pinchFreeze || (now - lastSwipeTriggerTimeMs) < 900L) {
+        // 4) 12종 손가락 정적 제스처 판정 (손이 완전히 멈춰 있을 때만 0.6초 충전 → 스크롤/포인터와 100% 공존!)
+        val isSingleIndexPointing = !thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp
+        val rawPose = if (isCurrentlyPinching || pinchFreeze || isSingleIndexPointing ||
+            (now - lastSwipeTriggerTimeMs) < 850L || (now - lastZoomStepTimeMs) < 850L
+        ) {
             null
         } else when {
             !thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp -> HandPose.FIST
-            isTrackingPaused -> null // 일시정지 중에는 오직 주먹(FIST) 해제만 허용!
-            indexUp && middleUp && !ringUp && !pinkyUp -> HandPose.PEACE
-            indexUp && !middleUp && !ringUp && pinkyUp && !thumbUp -> HandPose.ROCK_ON
+            isTrackingPaused -> null
+            !thumbUp && indexUp && middleUp && !ringUp && !pinkyUp -> HandPose.PEACE
+            thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp && (pinchRatio > ratioThreshold * 1.75f) -> HandPose.L_GUN
+            thumbUp && indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.PINCH_THREE
+            !thumbUp && indexUp && middleUp && ringUp && !pinkyUp -> HandPose.THREE_FINGERS
+            thumbUp && indexUp && middleUp && !ringUp && !pinkyUp -> HandPose.THUMB_INDEX_MID
+            !thumbUp && indexUp && middleUp && ringUp && pinkyUp -> HandPose.FOUR_FINGERS
+            thumbUp && indexUp && middleUp && ringUp && pinkyUp -> HandPose.OPEN_PALM
+            !thumbUp && indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.ROCK_ON
             thumbUp && !indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.SHAKA
             thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp -> HandPose.THUMB_UP
+            !thumbUp && !indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.PINKY_ONLY
             else -> null
         }
 
         var poseProgress = 0f
         var triggeredPoseAction: AirTouchAction? = null
-        if (rawPose != null && palmSpeedNorm < 0.13f) {
+        if (rawPose != null && palmSpeedNorm < 0.12f) {
             if (rawPose != currentCandidatePose) {
                 currentCandidatePose = rawPose; poseStartTimeMs = now; poseTriggeredInHold = false
             } else {
@@ -456,17 +555,23 @@ class GestureClassifier(private val config: AirTouchConfig) {
                         AirTouchTelemetry.lastTriggeredActionText = if (isTrackingPaused) "일시정지 켜짐" else "일시정지 해제됨"
                     } else if (!isTrackingPaused) {
                         triggeredPoseAction = mapped
+                        if (mapped == AirTouchAction.ZOOM_IN_AT_CURSOR || mapped == AirTouchAction.ZOOM_OUT_AT_CURSOR) {
+                            AirTouchTelemetry.zoomCount++
+                            feedbackBadgeLabel = if (mapped == AirTouchAction.ZOOM_IN_AT_CURSOR) "\uD83D\uDD0D 포즈 확대 (+)" else "\uD83D\uDD0D 포즈 축소 (-)"
+                            feedbackBadgeUntilMs = now + 550L
+                        }
                         AirTouchTelemetry.lastTriggeredActionText = "${rawPose.labelKo} -> ${mapped.titleKo}"
                     }
                 }
             }
-        } else if (palmSpeedNorm >= 0.16f || rawPose == null) {
+        } else if (palmSpeedNorm >= 0.15f || rawPose == null) {
             currentCandidatePose = null; poseTriggeredInHold = false
         }
 
-        // 4) 마우스 포인터 이동 (오직 포인터 조준 모드에서만 동작! 손바닥 스크롤·클릭·포즈 충전 중에는 0.0px 완전 고정!)
-        val freezeForPoseHold = poseProgress > 0.18f
-        if (!isTrackingPaused && !inPalmScrollMode && !handReentered && !pinchFreeze && !freezeForPoseHold) {
+        // 5) 마우스 포인터 이동 (스크롤·핀치·포즈 충전 중에는 0.0px 고정)
+        val inPalmScrollMotion = isOpenPalmForScroll && palmSpeedNorm >= 0.16f
+        val freezeForPoseHold = poseProgress > 0.20f
+        if (!isTrackingPaused && !inPalmScrollMotion && !handReentered && !pinchFreeze && !freezeForPoseHold && (now - lastSwipeTriggerTimeMs) > 220L) {
             val dFingerX = smoothFingerX - prevFingerX; val dFingerY = smoothFingerY - prevFingerY
             val dKnuckleX = smoothKnuckleX - prevKnuckleX; val dKnuckleY = smoothKnuckleY - prevKnuckleY
             val nearPinchBlend = if (pinchRatio < ratioThreshold * 1.38f) {
@@ -486,21 +591,23 @@ class GestureClassifier(private val config: AirTouchConfig) {
         prevFingerX = smoothFingerX; prevFingerY = smoothFingerY
         prevKnuckleX = smoothKnuckleX; prevKnuckleY = smoothKnuckleY
 
+        val activeBadge = if (now < feedbackBadgeUntilMs) feedbackBadgeLabel else ""
         val mode = when {
             isTrackingPaused -> ActiveGestureMode.PAUSED
+            pinchZoomLatched || (activeBadge.startsWith("\uD83D\uDD0D")) -> ActiveGestureMode.PINCH_ZOOM
             isCurrentlyPinching -> ActiveGestureMode.PINCH_CLICK
-            inPalmScrollMode -> ActiveGestureMode.PALM_SCROLL
+            inPalmScrollMotion || (activeBadge.isNotEmpty() && !activeBadge.startsWith("\uD83D\uDD0D")) -> ActiveGestureMode.PALM_SCROLL
             poseProgress > 0.15f && currentCandidatePose != null -> ActiveGestureMode.SHORTCUT_POSE
             else -> ActiveGestureMode.POINTER_MOVE
         }
 
-        val activeBadge = if (now < scrollBadgeUntilMs) scrollBadgeLabel else ""
         val summary = when (mode) {
             ActiveGestureMode.PAUSED -> "[일시정지] \u270A 주먹 0.6초 쥐어 재개"
-            ActiveGestureMode.PINCH_CLICK -> "\uD83D\uDC4C 클릭 고정됨 (${estCm}cm · 떼면 클릭 / 유지 시 길게 누르기)"
-            ActiveGestureMode.PALM_SCROLL -> if (activeBadge.isNotEmpty()) "\uD83D\uDD90\uFE0F $activeBadge" else "\uD83D\uDD90\uFE0F 손바닥 스크롤 모드 (커서 고정 · 상하좌우 쓸기)"
+            ActiveGestureMode.PINCH_ZOOM -> if (activeBadge.isNotEmpty()) activeBadge else "\uD83D\uDD0D 핀치 드래그 줌 모드 (손을 위로=확대 / 아래로=축소)"
+            ActiveGestureMode.PINCH_CLICK -> "\uD83D\uDC4C 클릭 고정됨 (${estCm}cm · 떼면 클릭 / 위아래 끌면 줌)"
+            ActiveGestureMode.PALM_SCROLL -> if (activeBadge.isNotEmpty()) "\uD83D\uDD90\uFE0F $activeBadge" else "\uD83D\uDD90\uFE0F 손바닥 스크롤 중 (${estCm}cm)"
             ActiveGestureMode.SHORTCUT_POSE -> "${currentCandidatePose!!.labelKo} (${(poseProgress * 100).toInt()}%)"
-            ActiveGestureMode.POINTER_MOVE -> if (nearEdge) "손을 카메라 안쪽으로 옮겨주세요 (${estCm}cm)" else "\u261D\uFE0F 포인터 이동 모드 (${estCm}cm · \uD83D\uDC4C클릭 / \uD83D\uDD90\uFE0F스크롤)"
+            ActiveGestureMode.POINTER_MOVE -> if (nearEdge) "손을 카메라 안쪽으로 옮겨주세요 (${estCm}cm)" else "\u261D\uFE0F 포인터 추적 중 (${estCm}cm · \uD83D\uDC4C클릭·줌 / \uD83D\uDD90\uFE0F스크롤)"
         }
         AirTouchTelemetry.currentModeText = summary
 
@@ -512,10 +619,12 @@ class GestureClassifier(private val config: AirTouchConfig) {
             gaugeProgress = maxOf(poseProgress, pinchProgress),
             tapClicked = tapClicked,
             longPressed = longPressed,
+            zoomDirection = zoomDir,
+            zoomScaleStep = zoomScaleStep,
             triggeredPoseAction = triggeredPoseAction,
             scrollDirection = scrollDir,
             scrollStrength = scrollStrength,
-            activeScrollBadge = activeBadge,
+            activeFeedbackBadge = activeBadge,
             nearFrameEdge = nearEdge,
             estimatedCm = estCm,
             landmarksXY = outLm,
@@ -540,15 +649,12 @@ class GestureClassifier(private val config: AirTouchConfig) {
         val wrist = lm[0]; val cmc = lm[1]; val mcp = lm[2]; val ip = lm[3]; val tip = lm[4]
         val v1x = ip.x() - cmc.x(); val v1y = ip.y() - cmc.y(); val v2x = tip.x() - mcp.x(); val v2y = tip.y() - mcp.y()
         val cos = (v1x * v2x + v1y * v2y) / (hypot(v1x, v1y).coerceAtLeast(1e-4f) * hypot(v2x, v2y).coerceAtLeast(1e-4f))
-        return (dist2D(tip, lm[5]) / handScale > 0.48f) && (dist2D(tip, lm[9]) / handScale > 0.58f) && (dist2D(wrist, tip) > dist2D(wrist, mcp) * 1.10f) && cos > 0.42f
+        return (dist2D(tip, lm[5]) / handScale > 0.46f) && (dist2D(tip, lm[9]) / handScale > 0.55f) && (dist2D(wrist, tip) > dist2D(wrist, mcp) * 1.08f) && cos > 0.38f
     }
 
     private fun dist2D(a: NormalizedLandmark, b: NormalizedLandmark): Float = hypot(a.x() - b.x(), a.y() - b.y())
 }
 
-/**
- * 4대 모드별 색상 분리 오버레이 커서 (초록=포인터, 노랑=클릭, 하늘=손바닥 스크롤, 빨강=일시정지)
- */
 class CursorOverlayView(context: Context) : View(context) {
     companion object {
         private val HAND_BONES = intArrayOf(
@@ -579,18 +685,18 @@ class CursorOverlayView(context: Context) : View(context) {
     var currentMode = ActiveGestureMode.POINTER_MOVE
     var handVisible = false; var nearEdge = false; var estimatedCm = 35
     var gaugeProgress = 0f; var statusLabel = "AirTouch 대기 중"
-    var scrollFeedbackBadge = ""
+    var feedbackBadge = ""
     var showStatusPill = true; var showSkeletonMini = true
 
     fun updateState(
         x: Float, y: Float, mode: ActiveGestureMode, handFound: Boolean, edgeWarn: Boolean, estCm: Int,
-        landmarks: FloatArray?, progress: Float, label: String, scrollBadge: String, showPill: Boolean, showMini: Boolean
+        landmarks: FloatArray?, progress: Float, label: String, badge: String, showPill: Boolean, showMini: Boolean
     ) {
         targetX = x; targetY = y; currentMode = mode; handVisible = handFound; nearEdge = edgeWarn; estimatedCm = estCm
         if (landmarks != null && landmarks.size >= 42) System.arraycopy(landmarks, 0, lmPts, 0, 42)
-        gaugeProgress = progress; statusLabel = label; scrollFeedbackBadge = scrollBadge
+        gaugeProgress = progress; statusLabel = label; feedbackBadge = badge
         showStatusPill = showPill; showSkeletonMini = showMini
-        if (mode == ActiveGestureMode.PINCH_CLICK || hypot(targetX - renderX, targetY - renderY) > 360f) {
+        if (mode == ActiveGestureMode.PINCH_CLICK || mode == ActiveGestureMode.PINCH_ZOOM || hypot(targetX - renderX, targetY - renderY) > 360f) {
             renderX = targetX; renderY = targetY
         }
         postInvalidateOnAnimation()
@@ -602,7 +708,7 @@ class CursorOverlayView(context: Context) : View(context) {
         val dt = ((now - lastDrawMs).coerceIn(4L, 40L)) / 1000f
         lastDrawMs = now
         val dx = targetX - renderX; val dy = targetY - renderY
-        if (currentMode == ActiveGestureMode.PINCH_CLICK || hypot(dx, dy) < 0.35f) {
+        if (currentMode == ActiveGestureMode.PINCH_CLICK || currentMode == ActiveGestureMode.PINCH_ZOOM || hypot(dx, dy) < 0.35f) {
             renderX = targetX; renderY = targetY
         } else {
             val blend = (1.0f - exp(-36.0f * dt)).coerceIn(0.18f, 0.85f)
@@ -611,10 +717,12 @@ class CursorOverlayView(context: Context) : View(context) {
         }
 
         val isPinch = currentMode == ActiveGestureMode.PINCH_CLICK
+        val isZoom = currentMode == ActiveGestureMode.PINCH_ZOOM
         val isPalm = currentMode == ActiveGestureMode.PALM_SCROLL
-        val r = if (isPinch) 20f else 28f
+        val r = if (isPinch) 20f else if (isZoom) 32f else 28f
         val themeColor = when (currentMode) {
             ActiveGestureMode.PAUSED -> Color.parseColor("#FF5252")
+            ActiveGestureMode.PINCH_ZOOM -> Color.parseColor("#E040FB")
             ActiveGestureMode.PINCH_CLICK -> Color.parseColor("#FFD740")
             ActiveGestureMode.PALM_SCROLL -> Color.parseColor("#00E5FF")
             ActiveGestureMode.SHORTCUT_POSE -> Color.parseColor("#40C4FF")
@@ -624,8 +732,7 @@ class CursorOverlayView(context: Context) : View(context) {
         canvas.drawCircle(renderX, renderY, r, cursorShadowPaint)
         canvas.drawCircle(renderX, renderY, r, outerRingPaint)
 
-        // 스크롤 모드에서는 커서 중앙에 십자 가이드(+)를 그려 포인터 이동과 명확히 구분
-        if (isPalm) {
+        if (isPalm || isZoom) {
             val arm = 9f * density
             canvas.drawLine(renderX - arm, renderY, renderX + arm, renderY, outerRingPaint)
             canvas.drawLine(renderX, renderY - arm, renderX, renderY + arm, outerRingPaint)
@@ -638,8 +745,9 @@ class CursorOverlayView(context: Context) : View(context) {
             canvas.drawArc(arcRect, -90f, 360f * gaugeProgress, false, progressArcPaint)
         }
 
-        val tagText = if (scrollFeedbackBadge.isNotEmpty()) scrollFeedbackBadge else if (isPalm) "스크롤 모드" else ""
+        val tagText = if (feedbackBadge.isNotEmpty()) feedbackBadge else if (isZoom) "줌 모드" else if (isPalm) "스크롤 모드" else ""
         if (tagText.isNotEmpty()) {
+            cursorBadgePaint.color = if (isZoom || tagText.startsWith("\uD83D\uDD0D")) Color.parseColor("#EA80FC") else Color.parseColor("#00E5FF")
             val tw = cursorBadgePaint.measureText(tagText)
             val bx = (renderX - tw * 0.5f - 10f * density).coerceIn(8f, (width - tw - 28f * density).coerceAtLeast(8f))
             val by = (renderY - r - 34f * density).coerceAtLeast(12f * density)
@@ -669,7 +777,7 @@ class CursorOverlayView(context: Context) : View(context) {
         canvas.drawRoundRect(miniRect, 12f * density, 12f * density, miniBoxBgPaint)
         canvas.drawRoundRect(miniRect, 12f * density, 12f * density, miniBoxBorderPaint)
         if (!handVisible) {
-            val msg = if (currentMode == ActiveGestureMode.PAUSED) "일시정지됨" else "손 미감지"
+            val msg = if (currentMode == ActiveGestureMode.PAUSED) "일시정지됨" else "손 탐색 중..."
             val mw = miniTextPaint.measureText(msg)
             canvas.drawText(msg, left + (boxW - mw) * 0.5f, top + boxH * 0.52f, miniTextPaint)
             return
@@ -691,10 +799,11 @@ class CursorOverlayView(context: Context) : View(context) {
             } else canvas.drawCircle(jx, jy, 2.0f * density, jointPaint)
         }
         val modeTag = when (currentMode) {
+            ActiveGestureMode.PINCH_ZOOM -> "핀치줌 · ${estimatedCm}cm"
             ActiveGestureMode.PALM_SCROLL -> "스크롤 · ${estimatedCm}cm"
             ActiveGestureMode.PINCH_CLICK -> "클릭 · ${estimatedCm}cm"
             ActiveGestureMode.PAUSED -> "일시정지"
-            else -> "포인터 · ${estimatedCm}cm"
+            else -> "인식OK · ${estimatedCm}cm"
         }
         canvas.drawText(modeTag, left + 8f * density, top + boxH - 6f * density, miniTextPaint)
     }
@@ -763,10 +872,9 @@ class AirTouchAccessibilityService : AccessibilityService() {
         runCatching { windowManager?.removeView(view) }; cursorView = null
     }
 
-    // 수정 완료: 일시정지 상태에서 손을 내렸을 때 일시정지 색상(빨강)과 문구가 풀리지 않도록 보존
     fun notifyNoHandDetected(isPaused: Boolean) = mainHandler.post {
         val mode = if (isPaused) ActiveGestureMode.PAUSED else ActiveGestureMode.POINTER_MOVE
-        val msg = if (isPaused) "[일시정지] \u270A 주먹 0.6초 쥐어 재개" else "전면 카메라 시야에 손을 보여주세요"
+        val msg = if (isPaused) "[일시정지] \u270A 주먹 0.6초 쥐어 재개" else "전면 카메라 시야에 손을 보여주세요 (원거리 자동 부스트 탐색 중)"
         cursorView?.let {
             it.updateState(it.targetX, it.targetY, mode, false, false, AirTouchTelemetry.estimatedDistanceCm, null, 0f, msg, "", config.showOverlayStatusPill, config.showSkeletonMiniView)
         }
@@ -778,12 +886,14 @@ class AirTouchAccessibilityService : AccessibilityService() {
         val py = (eval.normCursorY * screenHeight).coerceIn(0f, screenHeight.toFloat())
         cursorView?.updateState(
             px, py, eval.mode, true, eval.nearFrameEdge, eval.estimatedCm,
-            eval.landmarksXY, eval.gaugeProgress, eval.modeSummary, eval.activeScrollBadge,
+            eval.landmarksXY, eval.gaugeProgress, eval.modeSummary, eval.activeFeedbackBadge,
             config.showOverlayStatusPill, config.showSkeletonMiniView
         )
         when {
             eval.tapClicked -> dispatchTap(px, py, 45L)
             eval.longPressed -> dispatchTap(px, py, 580L)
+            eval.zoomDirection == GestureClassifier.ZoomDirection.IN -> dispatchPinchZoom(px, py, zoomIn = true, scale = eval.zoomScaleStep)
+            eval.zoomDirection == GestureClassifier.ZoomDirection.OUT -> dispatchPinchZoom(px, py, zoomIn = false, scale = eval.zoomScaleStep)
             eval.scrollDirection != GestureClassifier.ScrollDirection.NONE -> performScroll(eval.scrollDirection, px, py, eval.scrollStrength)
             eval.triggeredPoseAction != null && eval.triggeredPoseAction != AirTouchAction.TOGGLE_PAUSE_TRACKING -> performShortcutAction(eval.triggeredPoseAction, px, py)
         }
@@ -803,9 +913,40 @@ class AirTouchAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * 네이티브 2-Stroke 동시 대칭 멀티터치 핀치 줌 (지도·브라우저·갤러리 완벽 호환)
+     */
+    private fun dispatchPinchZoom(cx: Float, cy: Float, zoomIn: Boolean, scale: Float = 1.25f) {
+        val minDim = minOf(screenWidth, screenHeight).toFloat()
+        val safeCx = cx.coerceIn(screenWidth * 0.22f, screenWidth * 0.78f)
+        val safeCy = cy.coerceIn(screenHeight * 0.22f, screenHeight * 0.78f)
+        val innerDist = (minDim * 0.055f).coerceAtLeast(28f)
+        val outerDist = (minDim * (0.17f * scale.coerceIn(1.0f, 1.6f))).coerceAtLeast(innerDist + 55f)
+        val startOffset = if (zoomIn) innerDist else outerDist
+        val endOffset = if (zoomIn) outerDist else innerDist
+        // 대각선(45도) 양방향 2손가락 대칭 스트로크 생성
+        val c45 = 0.7071f
+        val p1 = Path().apply {
+            moveTo(safeCx - startOffset * c45, safeCy - startOffset * c45)
+            lineTo(safeCx - endOffset * c45, safeCy - endOffset * c45)
+        }
+        val p2 = Path().apply {
+            moveTo(safeCx + startOffset * c45, safeCy + startOffset * c45)
+            lineTo(safeCx + endOffset * c45, safeCy + endOffset * c45)
+        }
+        val dur = 240L
+        val desc = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(p1, 0L, dur))
+            .addStroke(GestureDescription.StrokeDescription(p2, 0L, dur))
+            .build()
+        safeDispatchGesture(desc, dur)
+    }
+
     private fun performShortcutAction(action: AirTouchAction, x: Float, y: Float) {
         when (action) {
             AirTouchAction.NONE, AirTouchAction.TOGGLE_PAUSE_TRACKING -> Unit
+            AirTouchAction.ZOOM_IN_AT_CURSOR -> dispatchPinchZoom(x, y, zoomIn = true, scale = 1.35f)
+            AirTouchAction.ZOOM_OUT_AT_CURSOR -> dispatchPinchZoom(x, y, zoomIn = false, scale = 1.35f)
             AirTouchAction.DOUBLE_TAP_AT_CURSOR -> { dispatchTap(x, y, 40L); mainHandler.postDelayed({ dispatchTap(x, y, 40L) }, 95L) }
             AirTouchAction.GLOBAL_BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
             AirTouchAction.GLOBAL_HOME -> performGlobalAction(GLOBAL_ACTION_HOME)
@@ -822,7 +963,6 @@ class AirTouchAccessibilityService : AccessibilityService() {
         }
     }
 
-    // 수정 완료: 진행 중인 스크롤/롱프레스 제스처가 도중에 취소되지 않도록 완료 콜백 가드 적용
     private fun safeDispatchGesture(desc: GestureDescription, durationMs: Long) {
         val now = SystemClock.uptimeMillis()
         if (now < gestureBusyUntilMs) return
@@ -875,6 +1015,7 @@ class AirTouchTrackingService : LifecycleService() {
     private val transformMatrix = Matrix()
     private val paintFilter = Paint(Paint.FILTER_BITMAP_FLAG)
     private var cachedDisplayRotation = -1
+    private var farSearchToggle = false
     @Volatile private var cameraBound = false
     @Volatile private var lastFrameProcessTimeMs = 0L
     @Volatile private var lastHandDetectedTimeMs = 0L
@@ -972,9 +1113,12 @@ class AirTouchTrackingService : LifecycleService() {
                 if (customModel.exists() && customModel.length() > 100_000L) {
                     FileInputStream(customModel).use { baseBuilder.setModelAssetBuffer(it.channel.map(FileChannel.MapMode.READ_ONLY, 0, customModel.length())) }
                 } else baseBuilder.setModelAssetPath("hand_landmarker.task")
+                // 핵심 수정 1: 멀리 떨어진 작은 손(45~90cm)도 처음에 즉시 포착하도록 초기 검출 임계값을 0.30으로 완화!
                 val opts = HandLandmarker.HandLandmarkerOptions.builder()
                     .setBaseOptions(baseBuilder.build()).setNumHands(1)
-                    .setMinHandDetectionConfidence(0.55f).setMinHandPresenceConfidence(0.55f).setMinTrackingConfidence(0.52f)
+                    .setMinHandDetectionConfidence(0.30f)
+                    .setMinHandPresenceConfidence(0.34f)
+                    .setMinTrackingConfidence(0.34f)
                     .setRunningMode(RunningMode.LIVE_STREAM)
                     .setResultListener(this::onHandLandmarkResult)
                     .setErrorListener { _ -> inferenceBusy = false }
@@ -1035,7 +1179,12 @@ class AirTouchTrackingService : LifecycleService() {
         val now = SystemClock.uptimeMillis(); val landmarker = handLandmarker
         if (landmarker == null) { imageProxy.close(); return }
         if (inferenceBusy && (now - lastInferenceStartMs) < 90L) { imageProxy.close(); return }
-        val targetFps = if ((now - lastHandDetectedTimeMs) > 4000L) 6 else 30
+        // 핵심 수정 2: 손이 아직 안 잡힌 탐색 상태에서도 15FPS(66ms)로 빠르게 스캔하여 멀리서 손을 들자마자 즉시 인식!
+        val targetFps = when {
+            AirTouchTelemetry.handDetected -> 30
+            (now - lastHandDetectedTimeMs) < 12000L -> 20
+            else -> 15
+        }
         if ((now - lastFrameProcessTimeMs) < (1000L / targetFps)) { imageProxy.close(); return }
         lastFrameProcessTimeMs = now
         try {
@@ -1054,6 +1203,16 @@ class AirTouchTrackingService : LifecycleService() {
                 transformMatrix.postTranslate(-w / 2f, -h / 2f)
                 if (rot != 0) transformMatrix.postRotate(rot.toFloat())
                 transformMatrix.postScale(-1f, 1f)
+                // 핵심 수정 3: 손이 미감지된 상태에서 전체 화각(1.0x)과 원거리 줌 부스트(1.38x)를 교차 스캔하여
+                // 60~90cm 떨어진 작은 손도 MediaPipe SSD Palm Detector가 첫 프레임에 즉시 캐치!
+                if (!AirTouchTelemetry.handDetected) {
+                    farSearchToggle = !farSearchToggle
+                    if (farSearchToggle) {
+                        transformMatrix.postScale(1.38f, 1.38f)
+                    }
+                } else {
+                    farSearchToggle = false
+                }
                 transformMatrix.postTranslate(outW / 2f, outH / 2f)
                 tCanvas?.drawColor(Color.BLACK)
                 tCanvas?.drawBitmap(rawBmp, transformMatrix, paintFilter)
@@ -1073,8 +1232,8 @@ class AirTouchTrackingService : LifecycleService() {
         val hands = result.landmarks()
         if (hands.isNullOrEmpty()) {
             AirTouchTelemetry.handDetected = false
-            AirTouchTelemetry.fingerStatesText = "손 미감지"
-            AirTouchTelemetry.currentModeText = if (classifier.isTrackingPaused) "[일시정지 상태]" else "손 대기 중..."
+            AirTouchTelemetry.fingerStatesText = "원거리 부스트 스캔 중..."
+            AirTouchTelemetry.currentModeText = if (classifier.isTrackingPaused) "[일시정지 상태]" else "손 대기 중 (원거리 즉시 인식 활성화)"
             AirTouchAccessibilityService.instance?.notifyNoHandDetected(classifier.isTrackingPaused)
             return
         }
@@ -1088,8 +1247,8 @@ class AirTouchTrackingService : LifecycleService() {
         val stopPending = PendingIntent.getService(this, 1, Intent(this, AirTouchTrackingService::class.java).apply { action = ACTION_STOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val openPending = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL_ID).setSmallIcon(android.R.drawable.ic_menu_view)
-            .setContentTitle("AirTouch AI v3.0 실행 중")
-            .setContentText("포인터(검지) · 클릭(엄지+검지) · 스크롤(손바닥) 분리 동작 중")
+            .setContentTitle("AirTouch AI v3.1 실행 중")
+            .setContentText("원거리 즉시 인식 · 멀티터치 핀치 줌 · 12종 손가락 제스처")
             .setContentIntent(openPending).addAction(android.R.drawable.ic_menu_close_clear_cancel, "즉시 끄기", stopPending).setOngoing(true).build()
     }
 }
@@ -1137,6 +1296,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speedLabel: TextView
     private lateinit var pinchLabel: TextView
     private lateinit var scrollSensLabel: TextView
+    private lateinit var zoomSwitch: Switch
     private lateinit var swipeSwitch: Switch
     private lateinit var invertSwitch: Switch
     private val poseUpdaters = mutableListOf<() -> Unit>()
@@ -1190,11 +1350,11 @@ class MainActivity : AppCompatActivity() {
         @Suppress("DEPRECATION") val vCode = pInfo?.versionCode ?: 0
 
         root.addView(TextView(this).apply {
-            text = "AIRTOUCH AI v3.0 (Build $vCode)"
+            text = "AIRTOUCH AI v3.1 (Build $vCode)"
             textSize = 18.5f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#00E676"))
         })
         root.addView(TextView(this).apply {
-            text = "중복 기능 정리 완료 · 포인터(검지) / 클릭(핀치) / 스크롤(손바닥) 완전 분리 엔진"
+            text = "원거리 손 즉시 인식 부스터 + 네이티브 멀티터치 핀치 줌 + 12종 손가락 제스처"
             textSize = 12f; setTextColor(Color.parseColor("#9E9E9E")); setPadding(0, dp(4), 0, dp(12))
         })
 
@@ -1207,27 +1367,27 @@ class MainActivity : AppCompatActivity() {
             delBtn.setBackgroundColor(Color.parseColor("#B71C1C")); root.addView(delBtn)
         }
 
-        // 1. 통합 시스템 상태 카드 (권한 + 엔진 상태 + RAM 사용량 단일 통합)
         statusText = TextView(this).apply {
             textSize = 12.8f; typeface = Typeface.MONOSPACE; setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#181B20")); setPadding(dp(12), dp(12), dp(12), dp(12))
         }
         root.addView(statusText)
 
-        // 2. 한눈에 보는 4대 기본 동작 안내 카드 (색상·손모양 완전 분리 설명)
+        // 핵심 제스처 & 핀치 줌 사용 안내 카드
         root.addView(TextView(this).apply {
-            text = "[ 기본 제스처 4가지 — 서로 간섭 없이 완전 분리 동작 ]\n" +
-                "• \u261D\uFE0F 포인터 이동 (초록 링) : 검지 위주로 펴고 이동\n" +
+            text = "[ 기본 동작 & 새로 추가된 핀치 줌(확대/축소) 사용법 ]\n" +
+                "• \u261D\uFE0F 포인터 이동 (초록 링) : 검지 위주로 펴고 이동 (원거리 85cm까지 즉시 인식)\n" +
                 "• \uD83D\uDC4C 클릭 / 길게 (노란 링) : 엄지+검지 끝 살짝 맞대기 (0.65초 유지=롱프레스)\n" +
-                "• \uD83D\uDD90\uFE0F 화면 스크롤 (하늘 링) : 손바닥(3손가락 이상) 펴면 커서 고정 후 상하좌우 쓸기\n" +
-                "• \u270A 일시정지 토글 (빨간 링): 주먹을 0.6초 쥐면 정지 / 다시 0.6초 쥐면 재개"
-            textSize = 12f; setTextColor(Color.parseColor("#E0E0E0"))
+                "• \uD83D\uDD0D 핀치 줌 확대/축소 (보라 링) :\n" +
+                "   1) 엄지+검지를 맞댄 채 손을 위로 끌면 확대(+), 아래로 끌면 축소(-)\n" +
+                "   2) 또는 엄지+검지만 펴고 공중에서 넓게 벌리면 확대(+), 오므리면 축소(-)\n" +
+                "• \uD83D\uDD90\uFE0F 손바닥 스크롤 (하늘 링) : 손가락 3개 이상 펴고 상하좌우로 가볍게 쓸기"
+            textSize = 11.8f; setTextColor(Color.parseColor("#E0E0E0"))
             setBackgroundColor(Color.parseColor("#131A22")); setPadding(dp(12), dp(10), dp(12), dp(10))
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8); bottomMargin = dp(10) }
         })
 
-        // 3. 실행 및 권한 제어 버튼
-        root.addView(createBtn("[ 1. 접근성 서비스(터치·스크롤 권한) 켜기 ]") { LauncherAirTouchBridge.openAccessibilitySettings(this) })
+        root.addView(createBtn("[ 1. 접근성 서비스(터치·스크롤·핀치줌 권한) 켜기 ]") { LauncherAirTouchBridge.openAccessibilitySettings(this) })
         root.addView(createBtn("[ 2. 전면 카메라 권한 허용 ]") { requestCameraAndNotifPermissions(1001) })
         toggleBtn = createBtn("[ 3. AirTouch 제스처 추적 시작 ]", true) {
             if (!hasCameraPermission()) { requestCameraAndNotifPermissions(1002); return@createBtn }
@@ -1241,15 +1401,13 @@ class MainActivity : AppCompatActivity() {
         root.addView(toggleBtn)
         root.addView(createBtn("[ 커서 위치 화면 정중앙으로 리셋 ]") { LauncherAirTouchBridge.recenter(this) })
 
-        // 4. 통합 클릭 & 스크롤 연습 타겟
-        practiceBtn = createBtn("★ [기본 기능 테스트] 커서로 여기를 \uD83D\uDC4C클릭(0회) 하거나 \uD83D\uDD90\uFE0F손바닥으로 이 화면을 위아래 스크롤해 보세요!") {
+        practiceBtn = createBtn("★ [통합 테스트] 클릭: 0회  |  스크롤: 0회  |  핀치 줌: 0회") {
             practiceClickCount++
             updatePracticeButtonText()
             practiceBtn.setBackgroundColor(Color.parseColor("#1B5E20"))
         }
         root.addView(practiceBtn)
 
-        // 5. 레이아웃 표시 ON/OFF 토글 3종
         root.addView(createHeader("DISPLAY LAYOUT TOGGLES (오버레이 및 모니터 표시 설정)"))
         root.addView(Switch(this).apply {
             text = "우측 하단 21개 손가락 관절 미니 뷰 표시"
@@ -1271,7 +1429,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        monitorHeaderView = createHeader("LIVE MONITOR (실시간 모드 · 관절 · 거리 상태)")
+        monitorHeaderView = createHeader("LIVE MONITOR (실시간 모드 · 관절 · 원거리 탐색 상태)")
         liveTelemetryText = TextView(this).apply {
             textSize = 12.4f; typeface = Typeface.MONOSPACE; setTextColor(Color.parseColor("#FFD740"))
             setBackgroundColor(Color.parseColor("#141920")); setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -1280,8 +1438,7 @@ class MainActivity : AppCompatActivity() {
         monitorHeaderView.visibility = initVis; liveTelemetryText.visibility = initVis
         root.addView(monitorHeaderView); root.addView(liveTelemetryText)
 
-        // 6. 핵심 감도 설정 (불필요한 중복 스위치 제거 후 3대 핵심 슬라이더만 명확히 배치)
-        root.addView(createHeader("CORE SENSITIVITY (포인터 · 클릭 · 손바닥 스크롤 감도)"))
+        root.addView(createHeader("CORE SENSITIVITY (포인터 · 클릭 · 핀치줌 · 스크롤 감도)"))
 
         speedLabel = TextView(this).apply { setTextColor(Color.LTGRAY); textSize = 12.5f }
         root.addView(speedLabel)
@@ -1328,9 +1485,16 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(scrollSeek)
 
+        zoomSwitch = Switch(this).apply {
+            text = "\uD83D\uDD0D 핀치 줌(화면 확대/축소) 제스처 사용 (핀치 후 상하 드래그 또는 엄지·검지 벌리기)"
+            setTextColor(Color.WHITE); setPadding(0, dp(8), 0, dp(4))
+            setOnCheckedChangeListener { _, checked -> config.pinchZoomEnabled = checked }
+        }
+        root.addView(zoomSwitch)
+
         swipeSwitch = Switch(this).apply {
             text = "\uD83D\uDD90\uFE0F 손바닥 스크롤 기능 사용"
-            setTextColor(Color.WHITE); setPadding(0, dp(8), 0, dp(4))
+            setTextColor(Color.WHITE); setPadding(0, dp(4), 0, dp(4))
             setOnCheckedChangeListener { _, checked -> config.swipeScrollEnabled = checked }
         }
         root.addView(swipeSwitch)
@@ -1342,8 +1506,8 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(invertSwitch)
 
-        // 7. 손바닥·포인팅과 절대 겹치지 않는 5종 고유 단축 포즈
-        root.addView(createHeader("5 DISTINCT SHORTCUT POSES (0.6초 정지 시 실행 · 터치하여 변경)"))
+        // 12종 손가락 정적 제스처 전체 목록
+        root.addView(createHeader("12 HAND GESTURE POSES (손을 멈추고 0.6초 유지 시 실행 · 터치하여 변경)"))
         poseUpdaters.clear()
         for (pose in HandPose.values()) {
             val rowBtn = createBtn("") {}
@@ -1365,7 +1529,7 @@ class MainActivity : AppCompatActivity() {
             root.addView(rowBtn)
         }
 
-        root.addView(createBtn("[ 모든 감도 및 단축 포즈 기본값으로 초기화 ]") {
+        root.addView(createBtn("[ 모든 감도 및 12종 제스처 기본값으로 초기화 ]") {
             config.resetDefaults()
             syncControlsFromConfig()
             Toast.makeText(this, "기본 설정으로 초기화되었습니다.", Toast.LENGTH_SHORT).show()
@@ -1383,13 +1547,14 @@ class MainActivity : AppCompatActivity() {
         pinchLabel.text = "2) \uD83D\uDC4C 핀치 클릭 민감도: ${String.format("%.2f", config.pinchRatioThreshold)} (높일수록 살짝만 맞대도 클릭)"
         scrollSeek.progress = ((config.palmSwipeThreshold - 0.045f) * 1000f).roundToInt().coerceIn(0, 105)
         scrollSensLabel.text = "3) \uD83D\uDD90\uFE0F 손바닥 스크롤 요구 폭: ${String.format("%.3f", config.palmSwipeThreshold)} (낮출수록 가볍게 쓸어도 스크롤)"
+        zoomSwitch.isChecked = config.pinchZoomEnabled
         swipeSwitch.isChecked = config.swipeScrollEnabled
         invertSwitch.isChecked = config.invertPalmScroll
         poseUpdaters.forEach { it() }
     }
 
     private fun updatePracticeButtonText() {
-        practiceBtn.text = "★ [통합 테스트] 클릭 성공: ${practiceClickCount}회  |  손바닥 스크롤 누적: ${AirTouchTelemetry.scrollCount}회"
+        practiceBtn.text = "★ [통합 테스트] 클릭: ${practiceClickCount}회  |  스크롤: ${AirTouchTelemetry.scrollCount}회  |  핀치 줌: ${AirTouchTelemetry.zoomCount}회"
     }
 
     private fun updateLiveTelemetryCard() {
@@ -1400,11 +1565,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
         liveTelemetryText.text =
-            "• 손 인식 : ${if (AirTouchTelemetry.handDetected) "● 정상 (${AirTouchTelemetry.cameraResolutionText} · 지연 ${AirTouchTelemetry.inferenceLatencyMs}ms)" else "○ 카메라 시야에 손 없음"}\n" +
+            "• 손 인식 : ${if (AirTouchTelemetry.handDetected) "● 정상 (${AirTouchTelemetry.cameraResolutionText} · 지연 ${AirTouchTelemetry.inferenceLatencyMs}ms)" else "○ 원거리 부스트 탐색 중 (1.38x 교차 스캔)"}\n" +
             "• 거리/방향: 약 ${AirTouchTelemetry.estimatedDistanceCm}cm · ${AirTouchTelemetry.orientationText}\n" +
             "• 손가락  : ${AirTouchTelemetry.fingerStatesText}\n" +
             "• 현재모드: ${AirTouchTelemetry.currentModeText}\n" +
-            "• 핀치비율: ${String.format("%.2f", AirTouchTelemetry.pinchRatio)} (임계값 ${String.format("%.2f", config.pinchRatioThreshold)}) · 최근 실행: ${AirTouchTelemetry.lastTriggeredActionText}"
+            "• 핀치비율: ${String.format("%.2f", AirTouchTelemetry.pinchRatio)} (클릭 임계값 ${String.format("%.2f", config.pinchRatioThreshold)}) · 최근 실행: ${AirTouchTelemetry.lastTriggeredActionText}"
     }
 
     private fun refreshDashboardState() {
