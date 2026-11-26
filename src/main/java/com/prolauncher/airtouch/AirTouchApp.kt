@@ -81,6 +81,11 @@ class AirTouchConfig(context: Context) {
   runCatching { AirTouchAction.valueOf(prefs.getString(pose.key, pose.defaultAction.name)!!) }.getOrDefault(pose.defaultAction)
  fun setActionForPose(pose: HandPose, action: AirTouchAction) =
   prefs.edit().putString(pose.key, action.name).apply()
+ fun getPauseResumeHint(): String {
+  val poses = HandPose.values().filter { getActionForPose(it) == AirTouchAction.TOGGLE_PAUSE_TRACKING }
+  return if (poses.isEmpty()) "앱에서 일시정지 해제 필요"
+  else poses.take(2).joinToString(" 또는 ") { it.labelKo.substringBefore(" (") } + " 0.6초 유지해 재개"
+ }
  fun resetDefaults() {
   val ed = prefs.edit()
    .putBoolean("mouse_pointer_v35", true)
@@ -463,14 +468,15 @@ class GestureClassifier(private val config: AirTouchConfig) {
     }
    }
   }
-  val isSingleIndexPointing = pointerEnabled && !thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp
-  val matchedPose = if (isCurrentlyPinching || pinchFreeze || tapClicked || isSingleIndexPointing ||
+  val isSingleIndexPointing = pointerEnabled && !isTrackingPaused && !thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp
+  val poseBlocked = if (isTrackingPaused) false else (
+   isCurrentlyPinching || pinchFreeze || tapClicked || isSingleIndexPointing ||
    (clickEnabled && (now - lastTapClickTimeMs) < 450L) || (now - lastSwipeTriggerTimeMs) < 850L
-  ) null else when {
+  )
+  val matchedPose = if (poseBlocked) null else when {
    isTightFist && !thumbUp && !indexUp && !middleUp && !ringUp && !pinkyUp -> HandPose.FIST
-   isTrackingPaused -> null
    !thumbUp && indexUp && middleUp && !ringUp && !pinkyUp -> HandPose.PEACE
-   thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp && (!clickEnabled || padPinchRatio > maxOf(entryThresh * 1.75f, 0.76f)) -> HandPose.L_GUN
+   thumbUp && indexUp && !middleUp && !ringUp && !pinkyUp && (isTrackingPaused || !clickEnabled || padPinchRatio > maxOf(entryThresh * 1.75f, 0.76f)) -> HandPose.L_GUN
    thumbUp && indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.PINCH_THREE
    !thumbUp && indexUp && middleUp && ringUp && !pinkyUp -> HandPose.THREE_FINGERS
    thumbUp && indexUp && middleUp && !ringUp && !pinkyUp -> HandPose.THUMB_INDEX_MID
@@ -482,10 +488,15 @@ class GestureClassifier(private val config: AirTouchConfig) {
    !thumbUp && !indexUp && !middleUp && !ringUp && pinkyUp -> HandPose.PINKY_ONLY
    else -> null
   }
-  val rawPose = matchedPose?.takeIf { config.getActionForPose(it) != AirTouchAction.NONE }
+  val rawPose = matchedPose?.takeIf { pose ->
+   val act = config.getActionForPose(pose)
+   if (isTrackingPaused) act == AirTouchAction.TOGGLE_PAUSE_TRACKING else act != AirTouchAction.NONE
+  }
+  val maxPoseStillSpeed = if (isTrackingPaused) 0.24f else 0.14f
+  val resetPoseMoveSpeed = if (isTrackingPaused) 0.28f else 0.18f
   var poseProgress = 0f
   var triggeredPoseAction: AirTouchAction? = null
-  if (rawPose != null && palmSpeedNorm < 0.12f) {
+  if (rawPose != null && palmSpeedNorm < maxPoseStillSpeed) {
    if (rawPose != currentCandidatePose) {
     currentCandidatePose = rawPose; poseStartTimeMs = now; poseTriggeredInHold = false
    } else {
@@ -503,7 +514,7 @@ class GestureClassifier(private val config: AirTouchConfig) {
      }
     }
    }
-  } else if (palmSpeedNorm >= 0.15f || rawPose == null) {
+  } else if (palmSpeedNorm >= resetPoseMoveSpeed || rawPose == null) {
    currentCandidatePose = null; poseTriggeredInHold = false
   }
   val inPalmScrollMotion = config.swipeScrollEnabled && isOpenPalmForScroll && palmSpeedNorm >= 0.16f
@@ -545,7 +556,7 @@ class GestureClassifier(private val config: AirTouchConfig) {
    else -> ActiveGestureMode.POINTER_MOVE
   }
   val summary = when (mode) {
-   ActiveGestureMode.PAUSED -> "[일시정지] \u270A 주먹 0.6초 쥐어 재개"
+   ActiveGestureMode.PAUSED -> if (poseProgress > 0.12f && currentCandidatePose != null) "[재개 중] ${currentCandidatePose!!.labelKo} (${(poseProgress * 100).toInt()}%)" else "[일시정지] ${config.getPauseResumeHint()}"
    ActiveGestureMode.PINCH_CLICK -> if (activeBadge.isNotEmpty()) activeBadge else "\uD83D\uDC4C 클릭 완료 (손가락을 펴면 다음 클릭 준비)"
    ActiveGestureMode.PALM_SCROLL -> if (activeBadge.isNotEmpty()) "\uD83D\uDD90\uFE0F $activeBadge" else "\uD83D\uDD90\uFE0F 손바닥 스크롤 중 (${estCm}cm)"
    ActiveGestureMode.SHORTCUT_POSE -> "${currentCandidatePose!!.labelKo} (${(poseProgress * 100).toInt()}%)"
