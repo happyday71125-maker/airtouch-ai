@@ -62,12 +62,24 @@ class AirTouchConfig(context: Context) {
  var swipeScrollEnabled: Boolean
   get() = prefs.getBoolean("swipe_scroll_v30", true)
   set(v) = prefs.edit().putBoolean("swipe_scroll_v30", v).apply()
+ var palmVerticalScrollEnabled: Boolean
+  get() = prefs.getBoolean("palm_vert_scroll_v36", true)
+  set(v) = prefs.edit().putBoolean("palm_vert_scroll_v36", v).apply()
+ var palmHorizontalScrollEnabled: Boolean
+  get() = prefs.getBoolean("palm_horiz_scroll_v36", true)
+  set(v) = prefs.edit().putBoolean("palm_horiz_scroll_v36", v).apply()
  var palmSwipeThreshold: Float
   get() = prefs.getFloat("palm_swipe_thresh_v30", 0.072f)
   set(v) = prefs.edit().putFloat("palm_swipe_thresh_v30", v.coerceIn(0.045f, 0.150f)).apply()
+ var palmHorizontalThreshold: Float
+  get() = prefs.getFloat("palm_horiz_thresh_v36", 0.078f)
+  set(v) = prefs.edit().putFloat("palm_horiz_thresh_v36", v.coerceIn(0.045f, 0.150f)).apply()
  var invertPalmScroll: Boolean
   get() = prefs.getBoolean("invert_palm_scroll_v30", false)
   set(v) = prefs.edit().putBoolean("invert_palm_scroll_v30", v).apply()
+ var invertPalmHorizontalScroll: Boolean
+  get() = prefs.getBoolean("invert_palm_horiz_v36", false)
+  set(v) = prefs.edit().putBoolean("invert_palm_horiz_v36", v).apply()
  var showOverlayStatusPill: Boolean
   get() = prefs.getBoolean("show_overlay_status_pill", true)
   set(v) = prefs.edit().putBoolean("show_overlay_status_pill", v).apply()
@@ -94,8 +106,12 @@ class AirTouchConfig(context: Context) {
    .putFloat("pinch_ratio_v34", 0.42f)
    .putBoolean("thumb_trigger_click_v34", true)
    .putBoolean("swipe_scroll_v30", true)
+   .putBoolean("palm_vert_scroll_v36", true)
+   .putBoolean("palm_horiz_scroll_v36", true)
    .putFloat("palm_swipe_thresh_v30", 0.072f)
+   .putFloat("palm_horiz_thresh_v36", 0.078f)
    .putBoolean("invert_palm_scroll_v30", false)
+   .putBoolean("invert_palm_horiz_v36", false)
   for (p in HandPose.values()) ed.putString(p.key, p.defaultAction.name)
   ed.apply()
  }
@@ -418,9 +434,12 @@ class GestureClassifier(private val config: AirTouchConfig) {
   )
   val isOpenPalmForScroll = indexUp && middleUp && ringUp && !isCurrentlyPinching && (!clickEnabled || padPinchRatio > entryThresh * 1.28f)
   if (isOpenPalmForScroll) lastScrollHandOpenMs = now
+  val vertScrollOn = config.swipeScrollEnabled && config.palmVerticalScrollEnabled
+  val horizScrollOn = config.swipeScrollEnabled && config.palmHorizontalScrollEnabled
+  val anyPalmScrollActive = vertScrollOn || horizScrollOn
   var scrollDir = ScrollDirection.NONE
   var scrollStrength = 1.0f
-  if (config.swipeScrollEnabled && !isTrackingPaused && !isCurrentlyPinching && !pinchFreeze && !tapClicked &&
+  if (anyPalmScrollActive && !isTrackingPaused && !isCurrentlyPinching && !pinchFreeze && !tapClicked &&
    (now - handEnteredFrameMs) > 150L && (!clickEnabled || (now - lastTapClickTimeMs) > 280L) &&
    (now - lastScrollHandOpenMs) <= 250L && (now - lastSwipeTriggerTimeMs) > 280L && palmBufCount >= 2
   ) {
@@ -434,17 +453,26 @@ class GestureClassifier(private val config: AirTouchConfig) {
     val mag = hypot(dx, dy)
     if (mag > bestMag) { bestMag = mag; bestDx = dx; bestDy = dy; bestDtMs = dtWin }
    }
-   val baseThresh = config.palmSwipeThreshold
+   val vertThresh = config.palmSwipeThreshold
+   val horizThresh = config.palmHorizontalThreshold
+   val minActiveThresh = when {
+    vertScrollOn && horizScrollOn -> minOf(vertThresh, horizThresh)
+    vertScrollOn -> vertThresh
+    else -> horizThresh
+   }
    val avgSpeed = bestMag / (bestDtMs.coerceAtLeast(40L) / 1000f)
-   if (bestMag >= baseThresh && avgSpeed >= 0.32f) {
-    var cand = ScrollDirection.NONE; var domDisp = 0f
-    if (abs(bestDy) >= baseThresh && abs(bestDy) > abs(bestDx) * 1.15f && (bestDy * instStepY >= -0.002f)) {
+   if (bestMag >= minActiveThresh && avgSpeed >= 0.32f) {
+    var cand = ScrollDirection.NONE; var domDisp = 0f; var usedThresh = vertThresh
+    val vertAxisRatio = if (horizScrollOn) 1.15f else 0.85f
+    val horizAxisRatio = if (vertScrollOn) 1.20f else 0.85f
+    if (vertScrollOn && abs(bestDy) >= vertThresh && abs(bestDy) > abs(bestDx) * vertAxisRatio && (bestDy * instStepY >= -0.002f)) {
      val moveUp = bestDy < 0f
      cand = if (!config.invertPalmScroll) (if (moveUp) ScrollDirection.DOWN else ScrollDirection.UP) else (if (moveUp) ScrollDirection.UP else ScrollDirection.DOWN)
-     domDisp = abs(bestDy)
-    } else if (abs(bestDx) >= baseThresh * 1.08f && abs(bestDx) > abs(bestDy) * 1.20f && (bestDx * instStepX >= -0.002f)) {
-     cand = if (bestDx < 0f) ScrollDirection.LEFT else ScrollDirection.RIGHT
-     domDisp = abs(bestDx)
+     domDisp = abs(bestDy); usedThresh = vertThresh
+    } else if (horizScrollOn && abs(bestDx) >= horizThresh && abs(bestDx) > abs(bestDy) * horizAxisRatio && (bestDx * instStepX >= -0.002f)) {
+     val moveLeft = bestDx < 0f
+     cand = if (!config.invertPalmHorizontalScroll) (if (moveLeft) ScrollDirection.LEFT else ScrollDirection.RIGHT) else (if (moveLeft) ScrollDirection.RIGHT else ScrollDirection.LEFT)
+     domDisp = abs(bestDx); usedThresh = horizThresh
     }
     if (cand != ScrollDirection.NONE) {
      val sinceLast = now - lastSwipeTriggerTimeMs
@@ -452,8 +480,8 @@ class GestureClassifier(private val config: AirTouchConfig) {
       (lastScrollDir == ScrollDirection.UP && cand == ScrollDirection.DOWN) ||
       (lastScrollDir == ScrollDirection.LEFT && cand == ScrollDirection.RIGHT) ||
       (lastScrollDir == ScrollDirection.RIGHT && cand == ScrollDirection.LEFT)
-     if (!isOpposite || sinceLast > 820L || (domDisp >= baseThresh * 1.65f && avgSpeed >= 0.70f)) {
-      scrollDir = cand; scrollStrength = (domDisp / baseThresh).coerceIn(1.0f, 1.85f)
+     if (!isOpposite || sinceLast > 820L || (domDisp >= usedThresh * 1.65f && avgSpeed >= 0.70f)) {
+      scrollDir = cand; scrollStrength = (domDisp / usedThresh).coerceIn(1.0f, 1.85f)
       lastSwipeTriggerTimeMs = now; lastScrollDir = cand
       palmBufCount = 0; palmBufHead = 0; currentCandidatePose = null; poseTriggeredInHold = false
       AirTouchTelemetry.scrollCount++
@@ -517,7 +545,7 @@ class GestureClassifier(private val config: AirTouchConfig) {
   } else if (palmSpeedNorm >= resetPoseMoveSpeed || rawPose == null) {
    currentCandidatePose = null; poseTriggeredInHold = false
   }
-  val inPalmScrollMotion = config.swipeScrollEnabled && isOpenPalmForScroll && palmSpeedNorm >= 0.16f
+  val inPalmScrollMotion = anyPalmScrollActive && isOpenPalmForScroll && palmSpeedNorm >= 0.16f
   val freezeForPoseHold = poseProgress > 0.20f
   if (!pointerEnabled) {
    cursorX = 0.5f; cursorY = 0.5f
@@ -562,16 +590,16 @@ class GestureClassifier(private val config: AirTouchConfig) {
    ActiveGestureMode.SHORTCUT_POSE -> "${currentCandidatePose!!.labelKo} (${(poseProgress * 100).toInt()}%)"
    ActiveGestureMode.MOTION_ONLY -> when {
     nearEdge -> "손을 카메라 안쪽으로 옮겨주세요 (${estCm}cm)"
-    !clickEnabled && config.swipeScrollEnabled -> "\uD83D\uDD90\uFE0F 손가락 모션 전용 (${estCm}cm · 스크롤 / 12종 포즈)"
-    clickEnabled && config.swipeScrollEnabled -> "\uD83D\uDD90\uFE0F 커서 숨김 모션 (${estCm}cm · 클릭 / 스크롤 / 포즈)"
-    clickEnabled && !config.swipeScrollEnabled -> "\uD83D\uDC4C 커서 숨김 클릭·포즈 (${estCm}cm)"
+    !clickEnabled && anyPalmScrollActive -> "\uD83D\uDD90\uFE0F 손가락 모션 전용 (${estCm}cm · 스크롤 / 12종 포즈)"
+    clickEnabled && anyPalmScrollActive -> "\uD83D\uDD90\uFE0F 커서 숨김 모션 (${estCm}cm · 클릭 / 스크롤 / 포즈)"
+    clickEnabled && !anyPalmScrollActive -> "\uD83D\uDC4C 커서 숨김 클릭·포즈 (${estCm}cm)"
     else -> "\u270C\uFE0F 12종 손가락 포즈 전용 (${estCm}cm)"
    }
    ActiveGestureMode.POINTER_MOVE -> when {
     nearEdge -> "손을 카메라 안쪽으로 옮겨주세요 (${estCm}cm)"
-    clickEnabled && config.swipeScrollEnabled -> "\u261D\uFE0F 에어마우스 (${estCm}cm · 맞대면 클릭 / \uD83D\uDD90\uFE0F스크롤)"
-    !clickEnabled && config.swipeScrollEnabled -> "\u261D\uFE0F 포인터+모션 (${estCm}cm · 클릭 OFF / \uD83D\uDD90\uFE0F스크롤)"
-    clickEnabled && !config.swipeScrollEnabled -> "\u261D\uFE0F 포인터+클릭 (${estCm}cm · 맞대면 즉시 클릭)"
+    clickEnabled && anyPalmScrollActive -> "\u261D\uFE0F 에어마우스 (${estCm}cm · 맞대면 클릭 / \uD83D\uDD90\uFE0F스크롤)"
+    !clickEnabled && anyPalmScrollActive -> "\u261D\uFE0F 포인터+모션 (${estCm}cm · 클릭 OFF / \uD83D\uDD90\uFE0F스크롤)"
+    clickEnabled && !anyPalmScrollActive -> "\u261D\uFE0F 포인터+클릭 (${estCm}cm · 맞대면 즉시 클릭)"
     else -> "\u261D\uFE0F 포인터 이동 전용 (${estCm}cm · 클릭·스크롤 OFF)"
    }
   }
